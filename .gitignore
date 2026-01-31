@@ -4,7 +4,6 @@ __pycache__/
 *$py.class
 *.so
 .Python
-build/
 develop-eggs/
 dist/
 downloads/
@@ -35,14 +34,16 @@ env/
 *.pkl
 *.pth
 *.ckpt
-models/*.pkl
+models/
 tmp/
 *.db
 
-# Outputs
-outputs/*.txt
-outputs/*.npy
+# Outputs and logs
 output/
+outputs/
+backups/
+*.log
+*.txt.bak
 
 # OS
 .DS_Store
@@ -55,5 +56,11 @@ Thumbs.db
 *.dylib
 
 # Build artifacts
+build/
 target/
 Cargo.lock
+*.spv
+
+# Test coverage
+.coverage
+htmlcov/
