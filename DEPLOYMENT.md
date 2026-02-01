@@ -236,7 +236,7 @@ After=network.target
 Type=simple
 User=genesis
 WorkingDirectory=/home/genesis/genesis
-ExecStart=/usr/bin/python /home/genesis/genesis/genesis.py train --data /usr/lib/alembic/data/datasets/curated/foundation/
+ExecStart=/usr/bin/node /home/genesis/genesis/genesis.js train --data /usr/lib/alembic/data/datasets/curated/foundation/
 
 # Resource limits
 MemoryLimit=32G
@@ -283,7 +283,7 @@ sudo journalctl -u genesis-training.service -f
 
 **Learning Mode**: Build Core Memory from training data
 ```bash
-genesis.py train --data /usr/lib/alembic/data/datasets/curated/foundation/ --mode learning
+genesis.js train --data /usr/lib/alembic/data/datasets/curated/foundation/ --mode learning
 # Builds long-term Core Memory from dataset
 ```
 
@@ -515,7 +515,7 @@ Current architecture supports single-GPU only.
 
 ```bash
 # Increase max proto-identities
-genesis.py train --data /usr/lib/alembic/data/datasets/curated/foundation/ --max-segments 1000
+genesis.js train --data /usr/lib/alembic/data/datasets/curated/foundation/ --max-segments 1000
 
 # Monitor memory usage
 watch -n 1 'ps aux | grep genesis | awk "{print \$6, \$7, \$8, \$9}"'
@@ -533,7 +533,7 @@ ls -lh /var/lib/genesis/checkpoints/
 
 # Resume from specific checkpoint
 # Resume from checkpoint
-genesis.py train --resume ./checkpoints/genesis_checkpoint.pkl
+genesis.js train --resume ./checkpoints/genesis_checkpoint.pkl
 
 # Recovery expected: Ouroboros cycle resumes from saved state
 ```
