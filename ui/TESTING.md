@@ -31,8 +31,7 @@ npm run dev
 
 ### Backend not connecting
 ```bash
-source venv/bin/activate
-python src/visualization/test_server.py
+genesis.js service --host 0.0.0.0 --port 8000
 ```
 
 ### Check logs
@@ -48,8 +47,7 @@ tail -f /tmp/genesis_server.log    # Backend
 
 ## Next Steps
 
-1. Connect to real Genesis system (replace test_server.py with server.py)
+1. Connect to real Genesis system (extend `src/visualization/server.py`)
 2. Add more WebGL effects
 3. Implement 3D camera controls
 4. Add parameter time-series charts
-

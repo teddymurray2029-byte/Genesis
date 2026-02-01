@@ -53,3 +53,8 @@ The frontend expects a WebSocket server at `ws://localhost:8000/ws` that sends:
 
 See `../src/visualization/server.py` for backend implementation.
 
+You can run the backend service from the repository root with:
+
+```bash
+genesis.js service --host 0.0.0.0 --port 8000
+```
