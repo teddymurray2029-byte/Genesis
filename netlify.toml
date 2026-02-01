@@ -1,7 +1,11 @@
 [build]
-  base = "ui"
-  command = "npm run build"
-  publish = "dist"
+  command = "npm --prefix ui run build"
+  publish = "ui/dist"
+
+[[redirects]]
+  from = "/health"
+  to = "/health.json"
+  status = 200
 
 [[redirects]]
   from = "/*"

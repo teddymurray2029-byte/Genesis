@@ -65,6 +65,9 @@ curl http://localhost:1337/api/health
 - `GET /api/logs` (alias to `/logs`)
 - `WS /ws` for realtime streaming
 
+For the Netlify-hosted static UI, `/health` is served from `ui/public/health.json` as a static
+response and is not backed by FastAPI.
+
 ### Basic Usage
 
 ```python
