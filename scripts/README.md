@@ -82,6 +82,17 @@ genesis.js test --gpu
 genesis.js test --benchmark
 ```
 
+### Service
+Run the realtime service backend (WebSocket + health endpoint):
+
+```bash
+# Start the backend service on port 8000
+genesis.js service --host 0.0.0.0 --port 8000
+
+# Development reload mode
+genesis.js service --reload
+```
+
 ### Discovery & Synthesis (Legacy Commands)
 These commands are being updated to use the new architecture:
 
