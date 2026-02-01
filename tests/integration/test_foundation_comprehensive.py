@@ -65,7 +65,7 @@ class ComprehensiveFoundationQA:
         start_time = time.time()
 
         discover_cmd = [
-            'python', 'genesis.py', 'discover',
+            'node', 'genesis.js', 'discover',
             '--input', dataset_path,
             '--output', model_path,
             '--dual-path',
@@ -131,7 +131,7 @@ class ComprehensiveFoundationQA:
                 query_type = ['short', 'medium', 'long'][idx]
 
                 synthesize_cmd = [
-                    'python', 'genesis.py', 'synthesize',
+                    'node', 'genesis.js', 'synthesize',
                     '--model', model_path,
                     '--query', query[:100],  # Limit query length
                     '--radius', '50.0'

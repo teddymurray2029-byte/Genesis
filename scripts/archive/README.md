@@ -18,26 +18,26 @@ These scripts use the OLD architecture (pre-Phases 1-6) and are incompatible wit
 
 ## Replacement
 
-Use `genesis.py` commands instead:
+Use `genesis.js` commands instead:
 
 ### Training
 ```bash
-genesis.py train --data /usr/lib/alembic/data/datasets/curated/foundation/ --output ./models/genesis_foundation.pkl
+genesis.js train --data /usr/lib/alembic/data/datasets/curated/foundation/ --output ./models/genesis_foundation.pkl
 ```
 
 ### Interactive Chat
 ```bash
-genesis.py chat --model ./models/genesis_foundation.pkl --stream
+genesis.js chat --model ./models/genesis_foundation.pkl --stream
 ```
 
 ### Testing
 ```bash
-genesis.py test [--gpu] [--benchmark]
+genesis.js test [--gpu] [--benchmark]
 ```
 
 ### Evaluation
 ```bash
-genesis.py eval --model ./models/genesis_foundation.pkl --test-cases tests/test_cases.json
+genesis.js eval --model ./models/genesis_foundation.pkl --test-cases tests/test_cases.json
 ```
 
 ## Architecture Migration Notes

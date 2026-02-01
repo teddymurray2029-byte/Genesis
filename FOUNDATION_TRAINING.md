@@ -103,7 +103,7 @@ Checkpoints are saved every N documents (default: 5) to:
 
 ```bash
 # Query the Foundation model
-python genesis.py synthesize \
+node genesis.js synthesize \
     --model /usr/lib/alembic/checkpoints/genesis/foundation_voxel_cloud.pkl \
     --query "What is the meaning of dharma?"
 ```

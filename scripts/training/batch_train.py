@@ -40,7 +40,7 @@ def train_with_config(config_name, config, data_path, output_dir):
     output_path = output_dir / model_name
 
     cmd = [
-        "python", "genesis.py", "train",
+        "node", "genesis.js", "train",
         "--data", str(data_path),
         "--output", str(output_path),
         "--collapse-cosine-threshold", str(config["cosine"]),

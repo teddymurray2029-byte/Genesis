@@ -38,7 +38,7 @@ This document specifies formal security requirements for Genesis based on Step 1
 - And 11 other files with pickle.load/dump
 
 **Input Validation (21 entry points)**:
-- CLI argument parsing (genesis.py)
+- CLI argument parsing (genesis.js)
 - File path handling (commands_synthesis.py, commands_train.py, commands_helpers.py)
 - JSON loading (commands_train.py)
 - Numeric parameter validation
@@ -123,7 +123,7 @@ Implement pydantic-based validation for all CLI arguments and data inputs across
 - Text inputs lack encoding/length validation
 
 **Scope**:
-- All argparse arguments in genesis.py
+- All CLI arguments in genesis.js
 - All file paths in CLI commands
 - All numeric parameters (thresholds, tolerances, rates)
 - All text inputs (queries, file content)
