@@ -111,6 +111,25 @@ if best_entry:
     print(f"Match: {text == reconstructed}")  # True
 ```
 
+### SQL Querying
+
+You can also query the voxel cloud with SQL against an in-memory snapshot of entries:
+
+```python
+# Fetch the most resonant text entries at octave 0
+rows = wavecube.voxel_cloud.query_by_sql(
+    """
+    SELECT id, modality, octave, resonance_strength
+    FROM entries
+    WHERE modality = 'text' AND octave = 0
+    ORDER BY resonance_strength DESC
+    LIMIT 5
+    """
+)
+for row in rows:
+    print(row)
+```
+
 ---
 
 ## Architecture
@@ -254,6 +273,29 @@ See `examples/` directory for complete examples:
 - `demo_memory_integration.py` - Full encoding/storage/retrieval pipeline
 - `demo_fft_roundtrip.py` - FFT encoding and perfect reconstruction
 - `demo_hierarchical_synthesis.py` - Multi-octave synthesis
+
+---
+
+## Log CRUD API (WordPress-friendly)
+
+Genesis includes a lightweight REST API that exposes log-style CRUD operations over HTTP,
+making it easy to integrate with existing systems (including WordPress via `wp_remote_*`
+or any REST client). The API runs on a dedicated port and uses a SQLite backing store for
+O(1)-style primary-key lookups. Set `GENESIS_LOG_API_PORT` to choose a port that matches
+your deployment constraints.
+
+```bash
+export GENESIS_LOG_API_PORT=8001
+uvicorn src.api.log_api:app --host 0.0.0.0 --port "${GENESIS_LOG_API_PORT}"
+```
+
+Endpoints:
+
+- `POST /logs` → create a log entry
+- `GET /logs/{id}` → fetch a log entry
+- `PUT /logs/{id}` → update a log entry
+- `DELETE /logs/{id}` → delete a log entry
+- `GET /health` → health check
 
 ---
 

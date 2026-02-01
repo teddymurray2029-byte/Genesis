@@ -13,7 +13,6 @@ app = FastAPI(title="Genesis Visualization Service")
 
 
 @app.get("/health")
-@app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
 
