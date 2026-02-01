@@ -1,3 +1,10 @@
+Disclaimer:
+This project has basically been abandoned. If it finds community support I will continue to maintain it in terms of public support.
+This project is not 100% complete and 100% perfect, but it lays a foundation for a new way of handling memory, identity and context.
+
+Feel free to fork, or make PRs and we will be happy to support.
+
+
 # Genesis: Multi-Octave Hierarchical Memory System
 
 A 3D spatial memory system using FFT encoding, triplanar projection, and WaveCube volumetric storage with 16,922× compression.
