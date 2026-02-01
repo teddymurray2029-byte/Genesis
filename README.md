@@ -46,6 +46,25 @@ cd Genesis
 pip install -r requirements.txt
 ```
 
+### Run the Visualization Service
+
+Genesis includes a FastAPI visualization backend that the UI can connect to for health checks,
+logs, and WebSocket streaming. Use the CLI service command to run it locally.
+
+```bash
+# Start the service on localhost:1337
+node genesis.js service --host 0.0.0.0 --port 1337
+
+# Verify health
+curl http://localhost:1337/api/health
+```
+
+**Endpoints**:
+- `GET /health` or `GET /api/health` for service status
+- `GET /logs`, `POST /logs`, `PATCH /logs/{id}`, `DELETE /logs/{id}` for log CRUD
+- `GET /api/logs` (alias to `/logs`)
+- `WS /ws` for realtime streaming
+
 ### Basic Usage
 
 ```python
@@ -192,6 +211,16 @@ Text decomposed at multiple frequency scales:
 
 ## Performance
 
+### Time Complexity
+
+| Stage | Complexity |
+|-------|------------|
+| FFT encode/decode | O(N log N) per 2D grid |
+| Triplanar projection | O(N) for centroid/peak scans |
+| Spatial clustering | O(k) where k = nearby entries checked |
+| Gaussian compression | O(P) for P dominant peaks (constant-bounded) |
+| Retrieval (naive) | O(M) scan, improved to O(log M) with indexing |
+
 ### Compression
 
 | Metric | Value |
@@ -245,6 +274,27 @@ audio_coords = extract_triplanar_coordinates(audio_proto, 'audio', 0, 128)
 ```
 
 **Result**: Same concept in different modalities clusters spatially but separates by phase.
+
+---
+
+## Use Case: YouTube Video Memory Store
+
+Imagine indexing a library of YouTube videos for semantic recall:
+
+1. **Ingest**: Split each video into time windows (e.g., 5–10 seconds).
+2. **Encode**: Generate embeddings or text summaries per window (captions, transcript chunks).
+3. **Project**: Convert each window into a proto-identity and triplanar coordinates.
+4. **Store**: Insert into WaveCube with video modality (W=270°).
+5. **Query**: Encode a user prompt or reference clip and perform spatial lookup.
+
+**Time Complexity Overview**:
+- Encoding each window is **O(N log N)** for FFT per segment.
+- Projection is **O(N)** per window for coordinate extraction.
+- Storage is **O(k)** for local clustering in the target voxel neighborhood.
+- Retrieval is **O(M)** with a naive scan, and **O(log M)** with spatial indexing (planned).
+
+This enables fast recall across large video libraries while keeping storage compact through
+Gaussian compression and WaveCube clustering.
 
 ---
 
