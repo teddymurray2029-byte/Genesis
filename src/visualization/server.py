@@ -6,6 +6,38 @@ import argparse
 import asyncio
 from typing import Any
 
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import uvicorn
+
+app = FastAPI(title="Genesis Visualization Service")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+class LogEntry(BaseModel):
+    id: int
+    message: str
+    level: str = "info"
+
+
+class LogCreate(BaseModel):
+    message: str
+    level: str = "info"
+
+
+_LOGS: list[LogEntry] = []
+_NEXT_LOG_ID = 1
+
+
+@app.get("/health")
+@app.get("/api/health")
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 import uvicorn
 
@@ -38,6 +70,52 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 await websocket.send_json({"type": "heartbeat"})
     except WebSocketDisconnect:
         return
+
+
+@app.get("/logs")
+@app.get("/api/logs")
+def list_logs() -> list[LogEntry]:
+    return _LOGS
+
+
+@app.post("/logs")
+@app.post("/api/logs")
+def create_log(payload: LogCreate) -> LogEntry:
+    global _NEXT_LOG_ID
+    entry = LogEntry(id=_NEXT_LOG_ID, message=payload.message, level=payload.level)
+    _NEXT_LOG_ID += 1
+    _LOGS.append(entry)
+    return entry
+
+
+@app.get("/logs/{log_id}")
+@app.get("/api/logs/{log_id}")
+def get_log(log_id: int) -> LogEntry:
+    for entry in _LOGS:
+        if entry.id == log_id:
+            return entry
+    raise HTTPException(status_code=404, detail=f"Log {log_id} not found")
+
+
+@app.put("/logs/{log_id}")
+@app.put("/api/logs/{log_id}")
+def update_log(log_id: int, payload: LogCreate) -> LogEntry:
+    for idx, entry in enumerate(_LOGS):
+        if entry.id == log_id:
+            updated = LogEntry(id=log_id, message=payload.message, level=payload.level)
+            _LOGS[idx] = updated
+            return updated
+    raise HTTPException(status_code=404, detail=f"Log {log_id} not found")
+
+
+@app.delete("/logs/{log_id}")
+@app.delete("/api/logs/{log_id}")
+def delete_log(log_id: int) -> dict[str, str]:
+    for idx, entry in enumerate(_LOGS):
+        if entry.id == log_id:
+            del _LOGS[idx]
+            return {"status": "deleted"}
+    raise HTTPException(status_code=404, detail=f"Log {log_id} not found")
 
 
 def parse_args() -> argparse.Namespace:
