@@ -111,6 +111,25 @@ if best_entry:
     print(f"Match: {text == reconstructed}")  # True
 ```
 
+### SQL Querying
+
+You can also query the voxel cloud with SQL against an in-memory snapshot of entries:
+
+```python
+# Fetch the most resonant text entries at octave 0
+rows = wavecube.voxel_cloud.query_by_sql(
+    """
+    SELECT id, modality, octave, resonance_strength
+    FROM entries
+    WHERE modality = 'text' AND octave = 0
+    ORDER BY resonance_strength DESC
+    LIMIT 5
+    """
+)
+for row in rows:
+    print(row)
+```
+
 ---
 
 ## Architecture

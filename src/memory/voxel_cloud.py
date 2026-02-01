@@ -6,7 +6,7 @@ Viewport-based retrieval allows synthesis of new proto-identities.
 """
 
 import numpy as np
-from typing import Dict, List, Tuple, Optional
+from typing import Any, Dict, Iterable, List, Tuple, Optional
 from dataclasses import dataclass, field
 from collections import defaultdict
 import pickle
@@ -364,6 +364,10 @@ class VoxelCloud:
             List of most similar proto-identities
         """
         return query_ops.query_by_proto_similarity(self, query_proto, max_results, similarity_metric)
+
+    def query_by_sql(self, sql: str, params: Optional[Iterable[Any]] = None) -> List[Dict[str, Any]]:
+        """Query voxel cloud metadata using SQL."""
+        return query_ops.query_by_sql(self, sql, params)
 
     def query_viewport(self, query_freq: np.ndarray, radius: float = 50.0,
                       max_results: int = 10, use_frequency_matching: bool = False,

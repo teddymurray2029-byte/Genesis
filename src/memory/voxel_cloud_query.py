@@ -1,7 +1,9 @@
 """Query and search operations for VoxelCloud."""
-import numpy as np
-from typing import List, Optional, Dict
+import sqlite3
 from collections import defaultdict
+from typing import Any, Dict, Iterable, List, Optional
+
+import numpy as np
 
 from .voxel_helpers import compute_cosine_similarity, resize_proto
 from . import voxel_cloud_collapse as collapse_ops
@@ -71,6 +73,109 @@ def query_by_proto_similarity(voxel_cloud, query_proto: np.ndarray, max_results:
     # Sort by similarity (descending) and return top matches
     similarities.sort(key=lambda x: x[0], reverse=True)
     return [entry for _, entry in similarities[:max_results]]
+
+
+def query_by_sql(
+    voxel_cloud,
+    sql: str,
+    params: Optional[Iterable[Any]] = None
+) -> List[Dict[str, Any]]:
+    """
+    Query voxel cloud metadata using SQL against an in-memory snapshot.
+
+    Args:
+        voxel_cloud: VoxelCloud instance
+        sql: SQL query string targeting the "entries" table
+        params: Optional query parameters for sqlite placeholders
+
+    Returns:
+        List of result rows as dictionaries
+    """
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        CREATE TABLE entries (
+            entry_index INTEGER PRIMARY KEY,
+            id TEXT,
+            modality TEXT,
+            octave INTEGER,
+            fundamental_freq REAL,
+            resonance_strength INTEGER,
+            frequency_band INTEGER,
+            position_x REAL,
+            position_y REAL,
+            position_z REAL,
+            coherence REAL,
+            timestamp REAL,
+            current_state TEXT,
+            wavecube_x INTEGER,
+            wavecube_y INTEGER,
+            wavecube_z INTEGER,
+            wavecube_w REAL,
+            cross_modal_links TEXT
+        )
+        """
+    )
+
+    for entry_index, entry in enumerate(voxel_cloud.entries):
+        metadata = entry.metadata or {}
+        wavecube_coords = entry.wavecube_coords or (None, None, None, None)
+        cross_modal_links = ",".join(entry.cross_modal_links)
+
+        cursor.execute(
+            """
+            INSERT INTO entries (
+                entry_index,
+                id,
+                modality,
+                octave,
+                fundamental_freq,
+                resonance_strength,
+                frequency_band,
+                position_x,
+                position_y,
+                position_z,
+                coherence,
+                timestamp,
+                current_state,
+                wavecube_x,
+                wavecube_y,
+                wavecube_z,
+                wavecube_w,
+                cross_modal_links
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                entry_index,
+                metadata.get("id", str(id(entry))),
+                entry.modality,
+                entry.octave,
+                entry.fundamental_freq,
+                entry.resonance_strength,
+                entry.frequency_band,
+                float(entry.position[0]),
+                float(entry.position[1]),
+                float(entry.position[2]),
+                entry.coherence_vs_core,
+                metadata.get("timestamp"),
+                entry.current_state.name if entry.current_state else None,
+                wavecube_coords[0],
+                wavecube_coords[1],
+                wavecube_coords[2],
+                wavecube_coords[3],
+                cross_modal_links
+            )
+        )
+
+    connection.commit()
+    cursor.execute(sql, params or ())
+    rows = [dict(row) for row in cursor.fetchall()]
+    connection.close()
+
+    return rows
 
 
 def query_viewport(voxel_cloud, query_freq: np.ndarray, radius: float = 50.0,
