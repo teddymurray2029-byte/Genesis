@@ -3,11 +3,6 @@
   publish = "ui/dist"
 
 [[redirects]]
-  from = "/health"
-  to = "/health.json"
-  status = 200
-
-[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
