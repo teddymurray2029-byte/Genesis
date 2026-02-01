@@ -38,6 +38,13 @@ _NEXT_LOG_ID = 1
 
 @app.get("/health")
 @app.get("/api/health")
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import uvicorn
+
+app = FastAPI(title="Genesis Visualization Service")
+
+
+@app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
 
