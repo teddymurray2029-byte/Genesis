@@ -15,6 +15,7 @@ Commands:
   chat        Interactive conversation
   eval        Run A/B evaluation tests
   test        Test system components
+  service     Run the realtime service backend
   discover    Discover patterns in text/image/audio
   synthesize  Synthesize from patterns
 
@@ -54,6 +55,15 @@ Options:
   test: `Usage: genesis.js test
 
 Options: none
+`,
+  service: `Usage: genesis.js service [options]
+
+Options:
+  --host <host>        Bind host (default: 0.0.0.0)
+  --port <port>        Bind port (default: 8000)
+  --reload             Enable auto-reload (development only)
+  --log-level <level>  Uvicorn log level (default: info)
+  --python <path>      Python executable (default: python)
 `,
   discover: `Usage: genesis.js discover [options]
 
@@ -140,6 +150,32 @@ function handleUnimplemented(command, options) {
   console.error(`Command "${command}" is not yet implemented in the JavaScript port.`);
   console.error("Parsed options:", JSON.stringify(options, null, 2));
   return 1;
+}
+
+function runService(options) {
+  const { spawn } = require("node:child_process");
+  const python = options.python || "python";
+  const args = [
+    "-m",
+    "uvicorn",
+    "src.visualization.server:app",
+    "--host",
+    options.host,
+    "--port",
+    String(options.port),
+    "--log-level",
+    options.logLevel,
+  ];
+
+  if (options.reload) {
+    args.push("--reload");
+  }
+
+  const child = spawn(python, args, { stdio: "inherit" });
+  child.on("exit", (code) => {
+    process.exitCode = code === null ? 1 : code;
+  });
+  return 0;
 }
 
 function parseCommand(command, argv) {
@@ -264,6 +300,35 @@ function parseCommand(command, argv) {
       }
 
       return handleUnimplemented(command, {});
+    }
+    case "service": {
+      const { values } = parseArgs({
+        args: argv,
+        options: {
+          ...baseOptions,
+          host: { type: "string", default: "0.0.0.0" },
+          port: { type: "string", default: "8000" },
+          reload: { type: "boolean", default: false },
+          "log-level": { type: "string", default: "info" },
+          python: { type: "string", default: "python" },
+        },
+        allowPositionals: true,
+      });
+
+      if (values.help) {
+        printCommandHelp("service");
+        return 0;
+      }
+
+      const options = {
+        host: values.host,
+        port: parseNumber(values.port, "port", "int"),
+        reload: values.reload,
+        logLevel: values["log-level"],
+        python: values.python,
+      };
+
+      return runService(options);
     }
     case "discover": {
       const { values } = parseArgs({
