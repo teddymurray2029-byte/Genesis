@@ -73,6 +73,31 @@ matrix.save('my_matrix.npz')
 loaded = WavetableMatrix.load('my_matrix.npz')
 ```
 
+### SQL Access (SQLite CRUD)
+
+Use the SQLite-backed matrix to query nodes with SQL while still using the same
+wavetable schema:
+
+```python
+import numpy as np
+from wavecube import SQLWavetableMatrix
+
+matrix = SQLWavetableMatrix(width=10, height=10, depth=10, resolution=256)
+
+wavetable = np.random.randn(256, 256, 4).astype(np.float32)
+matrix.set_node(1, 2, 3, wavetable, metadata={"tag": "example"})
+
+# Standard SQL reads
+cursor = matrix.execute(
+    "SELECT x, y, z, resolution_h, resolution_w FROM wavetable_nodes WHERE x = ?",
+    (1,),
+)
+rows = cursor.fetchall()
+
+# Direct access to the wavetable data
+retrieved = matrix.get_node(1, 2, 3)
+```
+
 ### Multi-Octave Example
 
 ```python

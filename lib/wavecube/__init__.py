@@ -26,6 +26,7 @@ __license__ = "MIT"
 # Core (Phase 1 - IMPLEMENTED)
 from .core.matrix import WavetableMatrix
 from .core.node import WavetableNode, NodeMetadata
+from .core.sql_matrix import SQLWavetableMatrix, SQLWavetableSchema
 
 # Interpolation (Phase 1 - IMPLEMENTED)
 from .interpolation.trilinear import trilinear_interpolate, trilinear_interpolate_batch
@@ -44,6 +45,8 @@ __all__ = [
     "WavetableMatrix",
     "WavetableNode",
     "NodeMetadata",
+    "SQLWavetableMatrix",
+    "SQLWavetableSchema",
 
     # Interpolation (Phase 1 - IMPLEMENTED)
     "trilinear_interpolate",

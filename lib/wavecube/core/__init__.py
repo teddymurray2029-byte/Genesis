@@ -2,6 +2,7 @@
 
 from .node import WavetableNode, NodeMetadata
 from .matrix import WavetableMatrix
+from .sql_matrix import SQLWavetableMatrix, SQLWavetableSchema
 from .chunked_matrix import ChunkedWaveCube
 from .layered_matrix import LayeredWaveCube, LayerType
 from .layer_manager import LayerManager
@@ -20,6 +21,8 @@ __all__ = [
     'WavetableNode',
     'NodeMetadata',
     'WavetableMatrix',
+    'SQLWavetableMatrix',
+    'SQLWavetableSchema',
     'ChunkedWaveCube',
     'LayeredWaveCube',
     'LayerType',
