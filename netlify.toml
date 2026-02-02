@@ -1,5 +1,5 @@
 [build]
-  command = "npm --prefix ui run build"
+  command = "npm --prefix ui install && npm --prefix ui run build"
   publish = "ui/dist"
 
 [[redirects]]
