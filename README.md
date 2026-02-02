@@ -52,18 +52,22 @@ Genesis includes a FastAPI visualization backend that the UI can connect to for 
 logs, and WebSocket streaming. Use the CLI service command to run it locally.
 
 ```bash
-# Start the service on localhost:1337
-node genesis.js service --host 0.0.0.0 --port 1337
+# Start the service on localhost:8000
+node genesis.js service --host 0.0.0.0 --port 8000
 
 # Verify health
-curl http://localhost:1337/api/health
+curl http://localhost:8000/api/health
 ```
 
 **Endpoints**:
 - `GET /health` or `GET /api/health` for service status
-- `GET /logs`, `POST /logs`, `PATCH /logs/{id}`, `DELETE /logs/{id}` for log CRUD
+- `GET /logs`, `POST /logs`, `PUT /logs/{id}`, `DELETE /logs/{id}` for log CRUD
 - `GET /api/logs` (alias to `/logs`)
 - `WS /ws` for realtime streaming
+
+If you need access from another machine, ensure the service is bound to `0.0.0.0` (as
+shown above). Running `uvicorn src.visualization.server:app` without `--host 0.0.0.0`
+defaults to `127.0.0.1` and will only be reachable locally.
 
 For the Netlify-hosted static UI, `/health` is served from `ui/public/health.json` as a static
 response and is not backed by FastAPI.
