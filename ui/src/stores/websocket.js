@@ -13,7 +13,13 @@ class WebSocketStore {
       brainSpace: { clusters: [], memories: [] },
       activation: { waveform: [], sparks: [] },
       controls: {},
-      events: []
+      events: [],
+      genesisDb: {
+        database: null,
+        tables: {},
+        activeTable: null,
+        selectedRow: null
+      }
     });
     this.connected = writable(false);
     this.lastSync = writable(null);
