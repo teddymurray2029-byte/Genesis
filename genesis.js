@@ -63,7 +63,10 @@ Options:
   --port <port>        Bind port (default: 8000)
   --reload             Enable auto-reload (development only)
   --log-level <level>  Uvicorn log level (default: info)
-  --python <path>      Python executable (default: python)
+  --python <path>      Python executable (overrides GENESIS_PYTHON_BIN)
+
+Environment:
+  GENESIS_PYTHON_BIN   Python executable to use (falls back to python3, python)
 `,
   discover: `Usage: genesis.js discover [options]
 
@@ -146,6 +149,33 @@ function parseNumber(value, label, kind = "float") {
   return parsed;
 }
 
+function resolvePythonExecutable(options) {
+  const { spawnSync } = require("node:child_process");
+  const candidates = [
+    options.python,
+    process.env.GENESIS_PYTHON_BIN,
+    "python3",
+    "python",
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const result = spawnSync(candidate, ["-V"], { stdio: "ignore" });
+    if (!result.error && result.status === 0) {
+      return candidate;
+    }
+    if (candidate === options.python || candidate === process.env.GENESIS_PYTHON_BIN) {
+      throw new Error(
+        `Unable to run Python executable "${candidate}". ` +
+          "Check that the path is correct and that it is on PATH."
+      );
+    }
+  }
+
+  throw new Error(
+    "No Python executable found. Install Python or set GENESIS_PYTHON_BIN/--python to a valid executable on your PATH."
+  );
+}
+
 function handleUnimplemented(command, options) {
   console.error(`Command "${command}" is not yet implemented in the JavaScript port.`);
   console.error("Parsed options:", JSON.stringify(options, null, 2));
@@ -154,7 +184,7 @@ function handleUnimplemented(command, options) {
 
 function runService(options) {
   const { spawn } = require("node:child_process");
-  const python = options.python || "python";
+  const python = resolvePythonExecutable(options);
   const args = [
     "-m",
     "uvicorn",
@@ -310,7 +340,7 @@ function parseCommand(command, argv) {
           port: { type: "string", default: "8000" },
           reload: { type: "boolean", default: false },
           "log-level": { type: "string", default: "info" },
-          python: { type: "string", default: "python" },
+          python: { type: "string" },
         },
         allowPositionals: true,
       });
