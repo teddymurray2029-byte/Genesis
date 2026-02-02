@@ -1,4 +1,6 @@
 """Query and search operations for VoxelCloud."""
+import base64
+import json
 import sqlite3
 from collections import defaultdict
 from typing import Any, Dict, Iterable, List, Optional
@@ -75,22 +77,28 @@ def query_by_proto_similarity(voxel_cloud, query_proto: np.ndarray, max_results:
     return [entry for _, entry in similarities[:max_results]]
 
 
-def query_by_sql(
-    voxel_cloud,
-    sql: str,
-    params: Optional[Iterable[Any]] = None
-) -> List[Dict[str, Any]]:
-    """
-    Query voxel cloud metadata using SQL against an in-memory snapshot.
+def _encode_array(value: np.ndarray) -> str:
+    payload = {
+        "b64": base64.b64encode(value.tobytes()).decode("ascii"),
+        "shape": list(value.shape),
+        "dtype": str(value.dtype),
+    }
+    return json.dumps(payload)
 
-    Args:
-        voxel_cloud: VoxelCloud instance
-        sql: SQL query string targeting the "entries" table
-        params: Optional query parameters for sqlite placeholders
 
-    Returns:
-        List of result rows as dictionaries
-    """
+def _encode_mip_levels(levels: List[np.ndarray]) -> str:
+    payload = [
+        {
+            "b64": base64.b64encode(level.tobytes()).decode("ascii"),
+            "shape": list(level.shape),
+            "dtype": str(level.dtype),
+        }
+        for level in levels
+    ]
+    return json.dumps(payload)
+
+
+def _create_entries_snapshot(voxel_cloud) -> sqlite3.Connection:
     connection = sqlite3.connect(":memory:")
     connection.row_factory = sqlite3.Row
     cursor = connection.cursor()
@@ -115,7 +123,13 @@ def query_by_sql(
             wavecube_y INTEGER,
             wavecube_z INTEGER,
             wavecube_w REAL,
-            cross_modal_links TEXT
+            cross_modal_links TEXT,
+            cross_modal_links_json TEXT,
+            metadata_json TEXT,
+            proto_identity_json TEXT,
+            frequency_json TEXT,
+            position_json TEXT,
+            mip_levels_json TEXT
         )
         """
     )
@@ -124,6 +138,12 @@ def query_by_sql(
         metadata = entry.metadata or {}
         wavecube_coords = entry.wavecube_coords or (None, None, None, None)
         cross_modal_links = ",".join(entry.cross_modal_links)
+        cross_modal_links_json = json.dumps(entry.cross_modal_links, default=str)
+        metadata_json = json.dumps(metadata, default=str)
+        proto_identity_json = _encode_array(entry.proto_identity)
+        frequency_json = _encode_array(entry.frequency)
+        position_json = _encode_array(entry.position)
+        mip_levels_json = _encode_mip_levels(entry.mip_levels)
 
         cursor.execute(
             """
@@ -145,8 +165,14 @@ def query_by_sql(
                 wavecube_y,
                 wavecube_z,
                 wavecube_w,
-                cross_modal_links
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                cross_modal_links,
+                cross_modal_links_json,
+                metadata_json,
+                proto_identity_json,
+                frequency_json,
+                position_json,
+                mip_levels_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry_index,
@@ -166,15 +192,62 @@ def query_by_sql(
                 wavecube_coords[1],
                 wavecube_coords[2],
                 wavecube_coords[3],
-                cross_modal_links
+                cross_modal_links,
+                cross_modal_links_json,
+                metadata_json,
+                proto_identity_json,
+                frequency_json,
+                position_json,
+                mip_levels_json
             )
         )
 
     connection.commit()
+    return connection
+
+
+def query_by_sql_with_columns(
+    voxel_cloud,
+    sql: str,
+    params: Optional[Iterable[Any]] = None
+) -> tuple[List[Dict[str, Any]], List[str]]:
+    """
+    Query voxel cloud metadata using SQL against an in-memory snapshot.
+
+    Args:
+        voxel_cloud: VoxelCloud instance
+        sql: SQL query string targeting the "entries" table
+        params: Optional query parameters for sqlite placeholders
+
+    Returns:
+        Tuple of result rows as dictionaries and column names.
+    """
+    connection = _create_entries_snapshot(voxel_cloud)
+    cursor = connection.cursor()
     cursor.execute(sql, params or ())
     rows = [dict(row) for row in cursor.fetchall()]
+    columns = [column[0] for column in cursor.description] if cursor.description else []
     connection.close()
+    return rows, columns
 
+
+def query_by_sql(
+    voxel_cloud,
+    sql: str,
+    params: Optional[Iterable[Any]] = None
+) -> List[Dict[str, Any]]:
+    """
+    Query voxel cloud metadata using SQL against an in-memory snapshot.
+
+    Args:
+        voxel_cloud: VoxelCloud instance
+        sql: SQL query string targeting the "entries" table
+        params: Optional query parameters for sqlite placeholders
+
+    Returns:
+        List of result rows as dictionaries
+    """
+    rows, _ = query_by_sql_with_columns(voxel_cloud, sql, params)
     return rows
 
 
