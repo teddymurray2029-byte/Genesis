@@ -609,15 +609,19 @@ Genesis implements a biological memory model:
 
 1. **Fixed grid resolution**: 128³ = 2M nodes may be insufficient for 100M+ unique concepts
    - **Solution**: Hierarchical WaveCube with 256³ or adaptive grid sizing
+   - **Next steps**: Add multi-resolution shards and dynamic load targets so hot regions can expand without rebuilding the full grid.
 
 2. **Spatial tolerance sensitivity**: τ=1.0 is too strict for fuzzy matching
    - **Solution**: Adaptive tolerance based on octave level and context
+   - **Next steps**: Learn τ per domain using validation recall/precision curves and store calibrated tolerances alongside metadata for each modality.
 
 3. **Sequential clustering**: O(m) linear scan for nearest neighbor
    - **Solution**: KD-tree or spatial hashing for O(log m)
+   - **Next steps**: Use incremental indexing with background rebuilds to keep query latency stable under streaming inserts.
 
 4. **CPU-bound operations**: FFT and compression on CPU
    - **Solution**: GPU acceleration (CUDA FFT, parallel compression)
+   - **Next steps**: Add mixed-precision kernels with deterministic fallbacks to preserve reproducibility while gaining throughput.
 
 **Future Directions**:
 
