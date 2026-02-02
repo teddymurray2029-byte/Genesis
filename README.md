@@ -333,26 +333,66 @@ See `examples/` directory for complete examples:
 
 ---
 
-## Log CRUD API (WordPress-friendly)
+## SQL Query API
 
-Genesis includes a lightweight REST API that exposes log-style CRUD operations over HTTP,
-making it easy to integrate with existing systems (including WordPress via `wp_remote_*`
-or any REST client). The API runs on a dedicated port and uses a SQLite backing store for
-O(1)-style primary-key lookups. Set `GENESIS_LOG_API_PORT` to choose a port that matches
-your deployment constraints.
+Genesis includes a lightweight FastAPI service for querying the voxel cloud metadata
+using SQL. The API loads a serialized `VoxelCloud` from disk and exposes a read-only
+SQL endpoint backed by an in-memory SQLite snapshot. The `entries` table includes
+both metadata columns (modality, octave, resonance strength, etc.) and serialized
+data columns (`proto_identity_json`, `frequency_json`, `position_json`,
+`mip_levels_json`) that hold base64-encoded numpy buffers plus shape/dtype metadata
+to allow reconstruction. Set `GENESIS_VOXEL_CLOUD_PATH` to the pickle you want to query.
 
 ```bash
-export GENESIS_LOG_API_PORT=8001
-uvicorn src.api.log_api:app --host 0.0.0.0 --port "${GENESIS_LOG_API_PORT}"
+export GENESIS_VOXEL_CLOUD_PATH=/path/to/voxel_cloud.pkl
+uvicorn src.api.log_api:app --host 0.0.0.0 --port 8001
 ```
 
 Endpoints:
 
-- `POST /logs` → create a log entry
-- `GET /logs/{id}` → fetch a log entry
-- `PUT /logs/{id}` → update a log entry
-- `DELETE /logs/{id}` → delete a log entry
+- `POST /query` → run a read-only SQL query against the `entries` table
+- `GET /schema` → inspect the `entries` table schema
+- `POST /reload` → reload the voxel cloud from disk
 - `GET /health` → health check
+
+Example:
+
+```bash
+curl -X POST http://localhost:8001/query \\
+  -H \"Content-Type: application/json\" \\
+  -d '{\"sql\": \"SELECT id, modality, resonance_strength FROM entries ORDER BY resonance_strength DESC LIMIT 5\"}'
+```
+
+To access the raw proto-identity data, select the JSON payload and decode it client-side:
+
+```bash
+curl -X POST http://localhost:8001/query \\
+  -H \"Content-Type: application/json\" \\
+  -d '{\"sql\": \"SELECT id, proto_identity_json FROM entries LIMIT 1\"}'
+```
+
+### MySQL-Compatible Gateway
+
+If you need to swap an existing MySQL connection string for Genesis, start the
+MySQL-compatible gateway. It speaks the MySQL wire protocol, enforces read-only
+`SELECT` queries against the same `entries` table, and authenticates with a
+configurable username/password.
+
+```bash
+export GENESIS_VOXEL_CLOUD_PATH=/path/to/voxel_cloud.pkl
+export GENESIS_MYSQL_HOST=0.0.0.0
+export GENESIS_MYSQL_PORT=3306
+export GENESIS_MYSQL_USER=genesis
+export GENESIS_MYSQL_PASSWORD=supersecret
+
+python -m src.api.mysql_server
+```
+
+Example connection:
+
+```bash
+mysql --host=127.0.0.1 --port=3306 --user=genesis --password=supersecret
+```
 
 ---
 
