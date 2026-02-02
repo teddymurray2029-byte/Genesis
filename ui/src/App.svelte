@@ -119,202 +119,133 @@
   <div class="flex-1 relative">
     <BrainSpace />
   </div>
-  
-  <!-- Control Panel (Right Sidebar) -->
-  <ControlPanel />
-
-  <!-- Schema Editor (Right Panel) -->
-  <section class="schema-editor">
-    <header class="schema-header">
-      <div>
-        <h2 class="text-lg font-semibold text-white">Schema Editor</h2>
-        <p class="text-xs text-slate-300">Draft changes are separate from the active schema.</p>
-      </div>
-      <div class="schema-actions">
-        <button class="schema-button primary" on:click={applyChanges}>Apply Changes</button>
-        <button class="schema-button" on:click={discardChanges}>Discard Changes</button>
-        <button class="schema-button" on:click={generateSql}>Generate SQL</button>
-      </div>
-    </header>
-
-    <div class="schema-body">
-      <div class="schema-panel">
-        <div class="schema-panel-header">
-          <h3 class="text-sm font-semibold text-genesis-cyan">Schema Draft</h3>
-          <button class="schema-button subtle" on:click={addTable}>Add Table</button>
-        </div>
-
-        {#each schemaDraft.tables as table, tableIndex}
-          <div class="schema-card">
-            <div class="schema-card-header">
-              <input
-                class="schema-input"
-                value={table.name}
-                on:input={(event) => updateTableName(tableIndex, event.target.value)}
-              />
-              <button class="schema-button danger" on:click={() => removeTable(tableIndex)}>Remove</button>
-            </div>
-
-            <div class="schema-columns">
-              <div class="schema-columns-header">
-                <span>Name</span>
-                <span>Type</span>
-                <span>Nullable</span>
-                <span>Default</span>
-                <span>PK</span>
-                <span>Index</span>
-                <span></span>
-              </div>
-
-              {#each table.columns as column, columnIndex}
-                <div class="schema-column-row">
-                  <input
-                    class="schema-input"
-                    value={column.name}
-                    on:input={(event) => updateColumn(tableIndex, columnIndex, 'name', event.target.value)}
-                  />
-                  <select
-                    class="schema-select"
-                    value={column.type}
-                    on:change={(event) => updateColumn(tableIndex, columnIndex, 'type', event.target.value)}
-                  >
-                    {#each dataTypes as dataType}
-                      <option value={dataType}>{dataType}</option>
-                    {/each}
-                  </select>
-                  <input
-                    type="checkbox"
-                    checked={column.nullable}
-                    on:change={(event) => updateColumn(tableIndex, columnIndex, 'nullable', event.target.checked)}
-                  />
-                  <input
-                    class="schema-input"
-                    value={column.default}
-                    placeholder="default"
-                    on:input={(event) => updateColumn(tableIndex, columnIndex, 'default', event.target.value)}
-                  />
-                  <input
-                    type="checkbox"
-                    checked={column.primaryKey}
-                    on:change={(event) => updateColumn(tableIndex, columnIndex, 'primaryKey', event.target.checked)}
-                  />
-                  <input
-                    type="checkbox"
-                    checked={column.index}
-                    on:change={(event) => updateColumn(tableIndex, columnIndex, 'index', event.target.checked)}
-                  />
-                  <button class="schema-button danger" on:click={() => removeColumn(tableIndex, columnIndex)}>
-                    Remove
-                  </button>
-                </div>
-              {/each}
-            </div>
-
-            <div class="schema-card-footer">
-              <button class="schema-button subtle" on:click={() => addColumn(tableIndex)}>Add Column</button>
-              <div class="schema-indexes">
-                <div class="text-xs uppercase tracking-wide text-slate-400">Indexes</div>
-                {#each getIndexSummary(table) as indexInfo}
-                  <div class="text-xs text-slate-300">
-                    {indexInfo.name} ({indexInfo.columns}) {indexInfo.unique ? 'unique' : ''}
-                  </div>
-                {/each}
-              </div>
-            </div>
-          </div>
-        {/each}
-      </div>
-
-      <div class="schema-panel">
-        <div class="schema-panel-header">
-          <h3 class="text-sm font-semibold text-genesis-cyan">Active Schema</h3>
-          <span class="text-xs text-slate-400">Read-only snapshot</span>
-        </div>
-        {#each activeSchema.tables as table}
-          <div class="schema-card muted">
-            <div class="schema-card-header">
-              <div class="text-sm text-white">{table.name}</div>
-            </div>
-            <div class="schema-columns">
-              {#each table.columns as column}
-                <div class="schema-column-summary">
-                  <div>{column.name}</div>
-                  <div class="text-slate-400">{column.type}</div>
-                  <div class="text-slate-400">{column.nullable ? 'NULL' : 'NOT NULL'}</div>
-                  <div class="text-slate-400">{column.default || '—'}</div>
-                  <div class="text-slate-400">{column.primaryKey ? 'PK' : ''}</div>
-                  <div class="text-slate-400">{column.index ? 'IDX' : ''}</div>
-                </div>
-              {/each}
-            </div>
-          </div>
-        {/each}
-      </div>
-
-      <div class="schema-panel">
-        <div class="schema-panel-header">
-          <h3 class="text-sm font-semibold text-genesis-cyan">Pending Changes</h3>
-          <span class="text-xs text-slate-400">{pendingChanges.length} changes</span>
-        </div>
-        {#if pendingChanges.length}
-          <ul class="schema-changes">
-            {#each pendingChanges as change}
-              <li class="schema-change-item">
-                <span class="schema-badge {change.type}">{change.type}</span>
-                <span>{formatChange(change)}</span>
-              </li>
-            {/each}
-          </ul>
-        {:else}
-          <p class="text-xs text-slate-400">No pending changes. Draft matches active schema.</p>
-        {/if}
-
-        <div class="schema-sql">
-          <div class="text-xs uppercase tracking-wide text-slate-400 mb-2">Generated SQL</div>
-          <textarea class="schema-textarea" bind:value={generatedSql} readonly placeholder="SQL output will appear here."></textarea>
-        </div>
-      </div>
-    </div>
-  </section>
-  
-  <!-- Chat Bar (Bottom) -->
-  <ChatBar />
 </main>
 
 <style>
-  main {
-    background: #000011; /* Deep navy/black background */
-    position: relative;
+  :global(body) {
+    background: #e7edf3;
+    color: #1f2937;
+    overflow: hidden;
   }
-  
-  /* Vignette effect - radial gradient overlay (behind UI) */
-  main::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(
-      ellipse at center,
-      transparent 0%,
-      transparent 40%,
-      rgba(0, 0, 17, 0.3) 70%,
-      rgba(0, 0, 0, 0.8) 100%
-    );
-    pointer-events: none;
-    z-index: 0;
+
+  .crud-app {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    font-family: 'Inter', system-ui, sans-serif;
   }
-  
-  /* Additional radial filter for depth */
-  main::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(
-      circle at 50% 50%,
-      transparent 0%,
-      rgba(0, 17, 34, 0.2) 50%,
-      rgba(0, 0, 0, 0.6) 100%
-    );
-    pointer-events: none;
-    z-index: 0;
+
+  .crud-header {
+    background: linear-gradient(90deg, #0f3a5f, #1f5f8b);
+    color: #f8fafc;
+    padding: 1.25rem 2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 10px 30px rgba(15, 58, 95, 0.25);
+  }
+
+  .crud-brand {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+  }
+
+  .brand-badge {
+    display: grid;
+    place-items: center;
+    width: 3rem;
+    height: 3rem;
+    background: #facc15;
+    color: #0f172a;
+    border-radius: 0.75rem;
+    font-weight: 700;
+  }
+
+  .brand-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+  }
+
+  .brand-subtitle {
+    font-size: 0.875rem;
+    color: rgba(248, 250, 252, 0.8);
+  }
+
+  .crud-actions {
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  .btn {
+    background: #f8fafc;
+    color: #1f2937;
+    border: 1px solid #cbd5f5;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .btn-primary {
+    background: #facc15;
+    border-color: #facc15;
+    color: #1f2937;
+  }
+
+  .btn-small {
+    width: 100%;
+    text-align: left;
+  }
+
+  .crud-body {
+    display: grid;
+    grid-template-columns: 240px 1fr 280px;
+    gap: 1.5rem;
+    padding: 1.5rem 2rem 2rem;
+    flex: 1;
+  }
+
+  .crud-sidebar,
+  .crud-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .sidebar-section h3,
+  .detail-card h3 {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #0f172a;
+    margin-bottom: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .database-card {
+    background: #ffffff;
+    padding: 1rem;
+    border-radius: 0.75rem;
+    box-shadow: 0 10px 20px rgba(15, 23, 42, 0.08);
+  }
+
+  .database-name {
+    font-weight: 600;
+  }
+
+  .database-meta {
+    font-size: 0.8rem;
+    color: #64748b;
+  }
+
+  .crud-sidebar ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
   }
 </style>
