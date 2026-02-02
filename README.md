@@ -46,6 +46,10 @@ cd Genesis
 pip install -r requirements.txt
 ```
 
+### Deployment & Upgrades
+
+For production deployment steps (system requirements, configuration, systemd setup, and monitoring), see `DEPLOYMENT.md`. The guide also includes an **Upgrade** checklist covering backup of persisted memory and checkpoints, toolchain updates, migrations, and post-upgrade validation.
+
 ### Run the Visualization Service
 
 Genesis includes a FastAPI visualization backend that the UI can connect to for health checks,
