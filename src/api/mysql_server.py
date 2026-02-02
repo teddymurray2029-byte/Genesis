@@ -8,6 +8,8 @@ import struct
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
+from src.api.sql_utils import normalize_sql
+from src.db.genesis_db import GenesisDB
 from src.api.sql_utils import ensure_readonly_sql
 from src.memory.voxel_cloud import VoxelCloud
 from src.memory.voxel_cloud_query import query_by_sql_with_columns
@@ -15,6 +17,7 @@ from src.memory.voxel_cloud_query import query_by_sql_with_columns
 LOGGER = logging.getLogger(__name__)
 
 DEFAULT_VOXEL_CLOUD_PATH = os.getenv("GENESIS_VOXEL_CLOUD_PATH")
+DEFAULT_DB_PATH = os.getenv("GENESIS_DB_PATH", "data/genesis_db.json")
 DEFAULT_HOST = os.getenv("GENESIS_MYSQL_HOST", "0.0.0.0")
 DEFAULT_PORT = int(os.getenv("GENESIS_MYSQL_PORT", "3306"))
 DEFAULT_USER = os.getenv("GENESIS_MYSQL_USER", "genesis")
@@ -98,6 +101,8 @@ def _scramble_password(password: str, salt: bytes) -> bytes:
     return bytes(x ^ y for x, y in zip(stage3, stage1))
 
 
+def _ok_packet(affected_rows: int = 0) -> bytes:
+    return b"\x00" + _pack_lenenc_int(affected_rows) + _pack_lenenc_int(0) + struct.pack("<HH", 2, 0)
 def _ok_packet() -> bytes:
     return b"\x00" + _pack_lenenc_int(0) + _pack_lenenc_int(0) + struct.pack("<HH", 2, 0)
 
@@ -153,10 +158,18 @@ class MySQLGateway:
     def __init__(
         self,
         voxel_cloud_path: Optional[str] = DEFAULT_VOXEL_CLOUD_PATH,
+        db_path: str = DEFAULT_DB_PATH,
         user: str = DEFAULT_USER,
         password: str = DEFAULT_PASSWORD,
     ) -> None:
         self._voxel_cloud_path = voxel_cloud_path
+        self._db_path = db_path
+        self._user = user
+        self._password = password
+        self._db = self._load_db()
+
+    def _load_db(self) -> GenesisDB:
+        return GenesisDB(db_path=self._db_path, voxel_cloud_path=self._voxel_cloud_path)
         self._user = user
         self._password = password
         self._voxel_cloud = self._load_voxel_cloud()
@@ -261,6 +274,7 @@ class MySQLGateway:
             return
 
         try:
+            sql = normalize_sql(normalized)
             sql = ensure_readonly_sql(normalized)
         except Exception as exc:
             writer.write(_pack_packet(_error_packet(str(exc)), sequence_id))
@@ -268,17 +282,30 @@ class MySQLGateway:
             return
 
         try:
+            result = self._db.execute_sql(sql)
             rows, columns = query_by_sql_with_columns(self._voxel_cloud, sql)
         except Exception as exc:
             writer.write(_pack_packet(_error_packet(str(exc)), sequence_id))
             await writer.drain()
             return
 
+        if result.operation != "select":
+            writer.write(_pack_packet(_ok_packet(result.affected_rows), sequence_id))
+            await writer.drain()
+            return
+
+        if not result.columns:
         if not columns:
             writer.write(_pack_packet(_ok_packet(), sequence_id))
             await writer.drain()
             return
 
+        writer.write(_pack_packet(_pack_lenenc_int(len(result.columns)), sequence_id))
+        await writer.drain()
+
+        column_types = self._infer_column_types(result.columns, result.rows)
+        sequence_id = 1
+        for name, column_type in zip(result.columns, column_types):
         writer.write(_pack_packet(_pack_lenenc_int(len(columns)), sequence_id))
         await writer.drain()
 
@@ -291,6 +318,8 @@ class MySQLGateway:
         sequence_id += 1
         await writer.drain()
 
+        for row in result.rows:
+            payload = b"".join(self._format_row_value(row.get(column)) for column in result.columns)
         for row in rows:
             payload = b"".join(self._format_row_value(row.get(column)) for column in columns)
             writer.write(_pack_packet(payload, sequence_id))
@@ -387,6 +416,16 @@ async def serve_mysql_gateway(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
     voxel_cloud_path: Optional[str] = DEFAULT_VOXEL_CLOUD_PATH,
+    db_path: str = DEFAULT_DB_PATH,
+    user: str = DEFAULT_USER,
+    password: str = DEFAULT_PASSWORD,
+) -> None:
+    gateway = MySQLGateway(
+        voxel_cloud_path=voxel_cloud_path,
+        db_path=db_path,
+        user=user,
+        password=password,
+    )
     user: str = DEFAULT_USER,
     password: str = DEFAULT_PASSWORD,
 ) -> None:

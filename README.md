@@ -335,6 +335,18 @@ See `examples/` directory for complete examples:
 
 ## SQL Query API
 
+Genesis includes a lightweight FastAPI service backed by a persistent GenesisDB
+JSON store. The service accepts `SELECT`, `INSERT`, `UPDATE`, and `DELETE` statements
+against the `entries` table, enabling a full read/write workflow instead of read-only
+SQLite snapshots. The `entries` table includes both metadata columns (modality, octave,
+resonance strength, etc.) and serialized data columns (`proto_identity_json`,
+`frequency_json`, `position_json`, `mip_levels_json`) that hold base64-encoded numpy
+buffers plus shape/dtype metadata to allow reconstruction. Set `GENESIS_DB_PATH` to
+the JSON file you want to persist, and optionally set `GENESIS_VOXEL_CLOUD_PATH` to
+bootstrap the database with an existing serialized voxel cloud on first run.
+
+```bash
+export GENESIS_DB_PATH=/path/to/genesis_db.json
 Genesis includes a lightweight FastAPI service for querying the voxel cloud metadata
 using SQL. The API loads a serialized `VoxelCloud` from disk and exposes a read-only
 SQL endpoint backed by an in-memory SQLite snapshot. The `entries` table includes
@@ -350,6 +362,9 @@ uvicorn src.api.log_api:app --host 0.0.0.0 --port 8001
 
 Endpoints:
 
+- `POST /query` → run a SQL statement against the `entries` table
+- `GET /schema` → inspect the `entries` table schema
+- `POST /reload` → reload the database and optionally re-bootstrap from voxel cloud
 - `POST /query` → run a read-only SQL query against the `entries` table
 - `GET /schema` → inspect the `entries` table schema
 - `POST /reload` → reload the voxel cloud from disk
@@ -371,6 +386,23 @@ curl -X POST http://localhost:8001/query \\
   -d '{\"sql\": \"SELECT id, proto_identity_json FROM entries LIMIT 1\"}'
 ```
 
+To insert new rows:
+
+```bash
+curl -X POST http://localhost:8001/query \\
+  -H \"Content-Type: application/json\" \\
+  -d '{\"sql\": \"INSERT INTO entries (modality, octave, resonance_strength) VALUES (\\\"text\\\", 3, 42)\"}'
+```
+
+### MySQL-Compatible Gateway
+
+If you need to swap an existing MySQL connection string for Genesis, start the
+MySQL-compatible gateway. It speaks the MySQL wire protocol, allows `SELECT`,
+`INSERT`, `UPDATE`, and `DELETE` statements against the same `entries` table,
+and authenticates with a configurable username/password.
+
+```bash
+export GENESIS_DB_PATH=/path/to/genesis_db.json
 ### MySQL-Compatible Gateway
 
 If you need to swap an existing MySQL connection string for Genesis, start the
