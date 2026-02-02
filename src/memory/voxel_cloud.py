@@ -64,6 +64,7 @@ class VoxelCloud:
         self.height = height
         self.depth = depth
         self.entries: List[ProtoIdentityEntry] = []
+        self.voxels: List[Dict[str, Any]] = []
         self.spatial_index = {}  # Grid-based spatial index
         self.frequency_index: Dict[int, List[int]] = {}  # freq_bin → [entry_ids]
         self.octave_hierarchy = OctaveHierarchy(num_octaves=12)  # 12-octave hierarchy
@@ -134,7 +135,7 @@ class VoxelCloud:
 
         # Add unique ID if not present
         if 'id' not in metadata:
-            metadata['id'] = f"{metadata.get('modality', 'text')}_{len(self.entries)}"
+            metadata['id'] = len(self.entries)
 
         # Assign frequency band (Phase 5)
         freq_band = self.frequency_bands.assign_band(frequency)
@@ -282,6 +283,12 @@ class VoxelCloud:
         if freq_bin not in self.frequency_index:
             self.frequency_index[freq_bin] = []
         self.frequency_index[freq_bin].append(entry_idx)
+
+    def add_voxel(self, proto_identity: np.ndarray, metadata: Dict) -> None:
+        """Compatibility helper to store a proto without explicit frequency."""
+        self.voxels.append({'voxel': proto_identity, 'metadata': metadata})
+        frequency = np.zeros((self.width, self.height, 2), dtype=np.float32)
+        self.add(proto_identity, frequency, metadata)
 
     def add_with_octaves(self, proto_identity: np.ndarray,
                         frequency: float = None, modality: str = 'text',
