@@ -8,6 +8,7 @@ _SQL_READONLY_PATTERN = re.compile(r"^\s*(with|select)\b", re.IGNORECASE | re.DO
 
 
 def normalize_sql(sql: str) -> str:
+def ensure_readonly_sql(sql: str) -> str:
     stripped = sql.strip()
     if not stripped:
         raise HTTPException(status_code=400, detail="SQL query must not be empty")
