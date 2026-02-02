@@ -37,6 +37,21 @@ from .voxel_cloud import VoxelCloud, ProtoIdentityEntry
 from .triplanar_projection import compute_spatial_distance
 
 
+class VoxelCloudClustering:
+    """Simple clustering wrapper used by component tests."""
+
+    def __init__(self) -> None:
+        self.voxel_cloud = VoxelCloud()
+
+    def get_stats(self) -> dict:
+        entries = self.voxel_cloud.entries
+        avg_resonance = float(np.mean([entry.resonance_strength for entry in entries])) if entries else 0.0
+        return {
+            "num_protos": len(entries),
+            "avg_resonance": avg_resonance,
+        }
+
+
 def find_nearest_proto(
     voxel_cloud: VoxelCloud,
     proto_identity: np.ndarray,
@@ -119,6 +134,8 @@ def add_or_strengthen_proto(
     proto_identity: np.ndarray,
     frequency: np.ndarray,
     octave: int,
+    unit: Optional[str] = None,
+    unit_hash: Optional[str] = None,
     modality: str = 'text',
     similarity_threshold: float = 0.90,
     wavecube_coords: Optional[Tuple[int, int, int, float]] = None,
@@ -136,6 +153,8 @@ def add_or_strengthen_proto(
         proto_identity: Proto-identity to add (H, W, L) - THIS IS THE UNIQUE FINGERPRINT
         frequency: Frequency spectrum (H, W, 2)
         octave: Octave level
+        unit: Original unit text (optional)
+        unit_hash: Hash identifier for unit (optional)
         modality: Modality type
         similarity_threshold: Clustering threshold for cosine similarity
         wavecube_coords: Optional WaveCube coordinates for spatial clustering
@@ -178,6 +197,10 @@ def add_or_strengthen_proto(
             'modality': modality,
             'octave': octave
         }
+        if unit is not None:
+            metadata['unit'] = unit
+        if unit_hash is not None:
+            metadata['unit_hash'] = unit_hash
 
         # Extract frequency signature for indexing
         from src.memory.octave_frequency import extract_fundamental, extract_harmonics

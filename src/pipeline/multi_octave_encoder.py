@@ -25,7 +25,7 @@ Usage:
 import numpy as np
 import hashlib
 from typing import List, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, InitVar
 from src.pipeline.fft_text_encoder import FFTTextEncoder
 
 
@@ -36,9 +36,18 @@ class OctaveUnit:
     Storage: proto_identity (H×W×L frequency image) + metadata only.
     Proto-identity contains the FFT-encoded text - no separate text storage needed!
     """
+    text: InitVar[str]  # Original unit text (character/word/phrase)
     octave: int  # Octave level (+4, 0, -2, etc.)
     proto_identity: np.ndarray  # 512×512×4 proto (contains FFT-encoded text)
     frequency: np.ndarray  # 512×512×2 [magnitude, phase]
+    unit: str | None = None  # Backward-compatible alias
+    unit_hash: str | None = None
+
+    def __post_init__(self, text: str) -> None:
+        if self.unit is None:
+            self.unit = text
+        if self.unit_hash is None:
+            self.unit_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 class MultiOctaveEncoder:
@@ -88,9 +97,10 @@ class MultiOctaveEncoder:
                 proto, freq = self._encode_unit_to_proto(unit_text, octave)
 
                 unit = OctaveUnit(
+                    text=unit_text,
                     octave=octave,
                     proto_identity=proto,
-                    frequency=freq
+                    frequency=freq,
                 )
                 all_units.append(unit)
 

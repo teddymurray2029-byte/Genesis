@@ -29,6 +29,14 @@ class EncodingResult:
     metadata: Dict
 
 
+@dataclass
+class EncodedOctaveUnit:
+    """Slim octave unit for output without raw text fields."""
+    octave: int
+    proto_identity: np.ndarray
+    frequency: np.ndarray
+
+
 class UnifiedEncoder:
     """Unified encoder combining multi-octave encoding and memory routing."""
 
@@ -66,6 +74,10 @@ class UnifiedEncoder:
         self.total_encoded = 0
         self.total_core_stored = 0
         self.total_experiential_stored = 0
+
+    @property
+    def memory(self) -> MemoryHierarchy:
+        return self.memory_hierarchy
 
     def encode(self,
                text: str,
@@ -128,8 +140,17 @@ class UnifiedEncoder:
 
         self.total_encoded += len(octave_units)
 
+        output_units = [
+            EncodedOctaveUnit(
+                octave=unit.octave,
+                proto_identity=unit.proto_identity,
+                frequency=unit.frequency,
+            )
+            for unit in octave_units
+        ]
+
         return EncodingResult(
-            octave_units=octave_units,
+            octave_units=output_units,
             routing_decisions=routing_decisions,
             core_added=core_added,
             experiential_added=experiential_added,
@@ -191,8 +212,6 @@ class UnifiedEncoder:
             **base_metadata,
             'octave': unit.octave,
             'destination': decision.destination,
-            'routing_reason': decision.reason,
-            'encoder': 'fft',  # Changed from 'unified' to 'fft'
             'width': self.width,
             'height': self.height
         }

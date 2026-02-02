@@ -14,7 +14,10 @@ import numpy as np
 from typing import Dict, Tuple, Optional
 import os
 from pathlib import Path
-import cv2
+try:
+    import cv2  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    cv2 = None
 
 
 class FrequencyFieldMapper:
@@ -27,6 +30,31 @@ class FrequencyFieldMapper:
     def to_frequency_spectrum(self, data) -> np.ndarray:
         """Convert data to frequency spectrum (H, W, 2)."""
         raise NotImplementedError
+
+
+def _resize_array(array: np.ndarray, target_shape: Tuple[int, int]) -> np.ndarray:
+    """Resize a 2D array using cv2 if available, else numpy interpolation."""
+    target_h, target_w = target_shape
+    if array.size == 0:
+        return np.zeros((target_h, target_w), dtype=array.dtype)
+    if cv2 is not None:
+        return cv2.resize(array, (target_w, target_h))
+    # Fallback: resize using numpy interpolation along each axis
+    src_h, src_w = array.shape[:2]
+    if src_h == target_h and src_w == target_w:
+        return array
+    y = np.linspace(0, src_h - 1, target_h)
+    x = np.linspace(0, src_w - 1, target_w)
+    x_grid, y_grid = np.meshgrid(x, y)
+    x0 = np.floor(x_grid).astype(int)
+    x1 = np.clip(x0 + 1, 0, src_w - 1)
+    y0 = np.floor(y_grid).astype(int)
+    y1 = np.clip(y0 + 1, 0, src_h - 1)
+    x_weight = x_grid - x0
+    y_weight = y_grid - y0
+    top = (1 - x_weight) * array[y0, x0] + x_weight * array[y0, x1]
+    bottom = (1 - x_weight) * array[y1, x0] + x_weight * array[y1, x1]
+    return (1 - y_weight) * top + y_weight * bottom
 
 
 class AudioFrequencyMapper(FrequencyFieldMapper):
@@ -196,8 +224,8 @@ class TextFrequencyAnalyzer(FrequencyFieldMapper):
             zero_spectrum = np.zeros((self.height, self.width, 2), dtype=np.float32)
             return zero_spectrum, zero_spectrum
 
-        magnitude_resized = cv2.resize(magnitude, (self.width, self.height))
-        phase_resized = cv2.resize(phase, (self.width, self.height))
+        magnitude_resized = _resize_array(magnitude, (self.height, self.width))
+        phase_resized = _resize_array(phase, (self.height, self.width))
 
         # Step 6: Normalize magnitude while preserving phase
         max_mag = magnitude_resized.max()
@@ -260,15 +288,13 @@ class TextFrequencyAnalyzer(FrequencyFieldMapper):
             # Downsample from full spectrum to expected STFT size
             # cv2.resize expects (width, height) which maps to (num_windows, fft_bins)
             if num_windows > 0 and fft_bins > 0:
-                stft_real = cv2.resize(
+                stft_real = _resize_array(
                     stft_matrix_denorm.real,
-                    (num_windows, fft_bins),  # cv2.resize: (width, height)
-                    interpolation=cv2.INTER_LINEAR
+                    (fft_bins, num_windows),
                 )
-                stft_imag = cv2.resize(
+                stft_imag = _resize_array(
                     stft_matrix_denorm.imag,
-                    (num_windows, fft_bins),  # cv2.resize: (width, height)
-                    interpolation=cv2.INTER_LINEAR
+                    (fft_bins, num_windows),
                 )
                 stft_resized = stft_real + 1j * stft_imag
             else:
