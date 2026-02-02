@@ -73,6 +73,414 @@
       }
       
       console.log(`📦 Generated ${clusters.length} clusters with ${allMemories.length} total memories`);
+
+      const genesisDb = {
+        database: {
+          name: 'hospital_core',
+          description: 'Operational data for in-patient care, clinics, and diagnostics.',
+          region: 'us-east-1',
+          updated_at: new Date().toISOString()
+        },
+        tables: {
+          patients: {
+            columns: [
+              { name: 'id', type: 'string' },
+              { name: 'name', type: 'string' },
+              { name: 'dob', type: 'date' },
+              { name: 'gender', type: 'string' },
+              { name: 'mrn', type: 'string' },
+              { name: 'admit_date', type: 'datetime' },
+              { name: 'diagnosis', type: 'string' },
+              { name: 'attending_physician', type: 'string' },
+              { name: 'status', type: 'string' },
+              { name: 'room', type: 'string' }
+            ],
+            rows: [
+              {
+                id: 'PT-1001',
+                name: 'Maya Patel',
+                dob: '1983-04-18',
+                gender: 'F',
+                mrn: 'MRN-849201',
+                admit_date: '2024-03-12T09:14:00Z',
+                diagnosis: 'Community-acquired pneumonia',
+                attending_physician: 'Dr. Alicia Nguyen',
+                status: 'Stable',
+                room: '3B-214'
+              },
+              {
+                id: 'PT-1002',
+                name: 'Marcus Reed',
+                dob: '1975-11-02',
+                gender: 'M',
+                mrn: 'MRN-751044',
+                admit_date: '2024-03-13T16:42:00Z',
+                diagnosis: 'Type 2 diabetes with hyperglycemia',
+                attending_physician: 'Dr. Isaiah Brooks',
+                status: 'Monitoring',
+                room: '4C-302'
+              },
+              {
+                id: 'PT-1003',
+                name: 'Elena García',
+                dob: '1990-06-27',
+                gender: 'F',
+                mrn: 'MRN-663518',
+                admit_date: '2024-03-11T22:05:00Z',
+                diagnosis: 'Acute appendicitis (post-op)',
+                attending_physician: 'Dr. Priya Shah',
+                status: 'Recovering',
+                room: '2A-118'
+              },
+              {
+                id: 'PT-1004',
+                name: 'Thomas Osei',
+                dob: '1968-01-14',
+                gender: 'M',
+                mrn: 'MRN-538902',
+                admit_date: '2024-03-10T08:30:00Z',
+                diagnosis: 'CHF exacerbation',
+                attending_physician: 'Dr. Claire Howard',
+                status: 'Critical',
+                room: 'ICU-07'
+              },
+              {
+                id: 'PT-1005',
+                name: 'Hannah Kim',
+                dob: '2002-09-09',
+                gender: 'F',
+                mrn: 'MRN-905774',
+                admit_date: '2024-03-14T13:55:00Z',
+                diagnosis: 'Asthma flare',
+                attending_physician: 'Dr. Liam Chen',
+                status: 'Stable',
+                room: '3A-204'
+              },
+              {
+                id: 'PT-1006',
+                name: 'Robert Hayes',
+                dob: '1958-07-30',
+                gender: 'M',
+                mrn: 'MRN-447211',
+                admit_date: '2024-03-09T19:20:00Z',
+                diagnosis: 'Ischemic stroke (left MCA)',
+                attending_physician: 'Dr. Sofia Morales',
+                status: 'Rehab',
+                room: 'Neuro-12'
+              }
+            ]
+          },
+          appointments: {
+            columns: [
+              { name: 'id', type: 'string' },
+              { name: 'patient_id', type: 'string' },
+              { name: 'physician_id', type: 'string' },
+              { name: 'scheduled_time', type: 'datetime' },
+              { name: 'visit_type', type: 'string' },
+              { name: 'status', type: 'string' },
+              { name: 'location', type: 'string' },
+              { name: 'reason', type: 'string' }
+            ],
+            rows: [
+              {
+                id: 'APPT-3001',
+                patient_id: 'PT-1001',
+                physician_id: 'MD-201',
+                scheduled_time: '2024-03-15T14:30:00Z',
+                visit_type: 'Follow-up',
+                status: 'Scheduled',
+                location: 'Pulmonary Clinic',
+                reason: 'Chest X-ray review'
+              },
+              {
+                id: 'APPT-3002',
+                patient_id: 'PT-1002',
+                physician_id: 'MD-202',
+                scheduled_time: '2024-03-15T09:00:00Z',
+                visit_type: 'Consult',
+                status: 'Checked In',
+                location: 'Endocrinology',
+                reason: 'Glucose management plan'
+              },
+              {
+                id: 'APPT-3003',
+                patient_id: 'PT-1003',
+                physician_id: 'MD-203',
+                scheduled_time: '2024-03-16T11:15:00Z',
+                visit_type: 'Post-op',
+                status: 'Scheduled',
+                location: 'Surgery Suite 2',
+                reason: 'Wound inspection'
+              },
+              {
+                id: 'APPT-3004',
+                patient_id: 'PT-1004',
+                physician_id: 'MD-204',
+                scheduled_time: '2024-03-15T18:00:00Z',
+                visit_type: 'Rounds',
+                status: 'In Progress',
+                location: 'ICU',
+                reason: 'Cardiac status update'
+              },
+              {
+                id: 'APPT-3005',
+                patient_id: 'PT-1005',
+                physician_id: 'MD-205',
+                scheduled_time: '2024-03-17T08:30:00Z',
+                visit_type: 'Respiratory',
+                status: 'Scheduled',
+                location: 'Respiratory Lab',
+                reason: 'Spirometry assessment'
+              },
+              {
+                id: 'APPT-3006',
+                patient_id: 'PT-1006',
+                physician_id: 'MD-206',
+                scheduled_time: '2024-03-15T13:00:00Z',
+                visit_type: 'Rehab',
+                status: 'Scheduled',
+                location: 'Neuro Rehab Gym',
+                reason: 'PT/OT evaluation'
+              }
+            ]
+          },
+          physicians: {
+            columns: [
+              { name: 'id', type: 'string' },
+              { name: 'name', type: 'string' },
+              { name: 'specialty', type: 'string' },
+              { name: 'pager', type: 'string' },
+              { name: 'phone', type: 'string' },
+              { name: 'department', type: 'string' },
+              { name: 'status', type: 'string' },
+              { name: 'shift', type: 'string' }
+            ],
+            rows: [
+              {
+                id: 'MD-201',
+                name: 'Dr. Alicia Nguyen',
+                specialty: 'Pulmonology',
+                pager: 'PGR-8821',
+                phone: '(555) 410-2211',
+                department: 'Medicine',
+                status: 'On Service',
+                shift: 'Day'
+              },
+              {
+                id: 'MD-202',
+                name: 'Dr. Isaiah Brooks',
+                specialty: 'Endocrinology',
+                pager: 'PGR-7745',
+                phone: '(555) 410-3389',
+                department: 'Medicine',
+                status: 'On Service',
+                shift: 'Day'
+              },
+              {
+                id: 'MD-203',
+                name: 'Dr. Priya Shah',
+                specialty: 'General Surgery',
+                pager: 'PGR-6650',
+                phone: '(555) 410-5524',
+                department: 'Surgery',
+                status: 'On Call',
+                shift: 'Evening'
+              },
+              {
+                id: 'MD-204',
+                name: 'Dr. Claire Howard',
+                specialty: 'Cardiology',
+                pager: 'PGR-4483',
+                phone: '(555) 410-7872',
+                department: 'Cardiology',
+                status: 'On Service',
+                shift: 'Night'
+              },
+              {
+                id: 'MD-205',
+                name: 'Dr. Liam Chen',
+                specialty: 'Pulmonary Critical Care',
+                pager: 'PGR-9914',
+                phone: '(555) 410-6623',
+                department: 'Critical Care',
+                status: 'On Service',
+                shift: 'Day'
+              },
+              {
+                id: 'MD-206',
+                name: 'Dr. Sofia Morales',
+                specialty: 'Neurology',
+                pager: 'PGR-1207',
+                phone: '(555) 410-1147',
+                department: 'Neurosciences',
+                status: 'On Service',
+                shift: 'Evening'
+              }
+            ]
+          },
+          wards: {
+            columns: [
+              { name: 'id', type: 'string' },
+              { name: 'name', type: 'string' },
+              { name: 'floor', type: 'string' },
+              { name: 'charge_nurse', type: 'string' },
+              { name: 'capacity', type: 'number' },
+              { name: 'occupied_beds', type: 'number' },
+              { name: 'status', type: 'string' },
+              { name: 'phone', type: 'string' }
+            ],
+            rows: [
+              {
+                id: 'WARD-3B',
+                name: 'Medical-Surgical West',
+                floor: '3B',
+                charge_nurse: 'Jordan Ellis, RN',
+                capacity: 32,
+                occupied_beds: 28,
+                status: 'Busy',
+                phone: '(555) 410-3300'
+              },
+              {
+                id: 'WARD-4C',
+                name: 'Telemetry',
+                floor: '4C',
+                charge_nurse: 'Renee Alvarez, RN',
+                capacity: 24,
+                occupied_beds: 21,
+                status: 'At Capacity',
+                phone: '(555) 410-4400'
+              },
+              {
+                id: 'WARD-ICU',
+                name: 'Intensive Care Unit',
+                floor: 'ICU',
+                charge_nurse: 'Samir Patel, RN',
+                capacity: 18,
+                occupied_beds: 17,
+                status: 'Critical',
+                phone: '(555) 410-7700'
+              },
+              {
+                id: 'WARD-NEURO',
+                name: 'Neuroscience Stepdown',
+                floor: 'Neuro',
+                charge_nurse: 'Alexis Grant, RN',
+                capacity: 20,
+                occupied_beds: 16,
+                status: 'Available',
+                phone: '(555) 410-5500'
+              },
+              {
+                id: 'WARD-2A',
+                name: 'Post-Op Recovery',
+                floor: '2A',
+                charge_nurse: 'Morgan Li, RN',
+                capacity: 16,
+                occupied_beds: 12,
+                status: 'Open',
+                phone: '(555) 410-2200'
+              }
+            ]
+          },
+          lab_results: {
+            columns: [
+              { name: 'id', type: 'string' },
+              { name: 'patient_id', type: 'string' },
+              { name: 'test', type: 'string' },
+              { name: 'collected_at', type: 'datetime' },
+              { name: 'result', type: 'string' },
+              { name: 'unit', type: 'string' },
+              { name: 'reference_range', type: 'string' },
+              { name: 'status', type: 'string' },
+              { name: 'ordering_physician', type: 'string' }
+            ],
+            rows: [
+              {
+                id: 'LAB-7001',
+                patient_id: 'PT-1001',
+                test: 'CBC',
+                collected_at: '2024-03-13T06:30:00Z',
+                result: 'WBC 11.2',
+                unit: 'x10^3/uL',
+                reference_range: '4.0-10.5',
+                status: 'Flagged',
+                ordering_physician: 'Dr. Alicia Nguyen'
+              },
+              {
+                id: 'LAB-7002',
+                patient_id: 'PT-1002',
+                test: 'HbA1c',
+                collected_at: '2024-03-12T10:15:00Z',
+                result: '9.1',
+                unit: '%',
+                reference_range: '<7.0',
+                status: 'High',
+                ordering_physician: 'Dr. Isaiah Brooks'
+              },
+              {
+                id: 'LAB-7003',
+                patient_id: 'PT-1003',
+                test: 'CRP',
+                collected_at: '2024-03-12T18:45:00Z',
+                result: '6.8',
+                unit: 'mg/L',
+                reference_range: '<5.0',
+                status: 'High',
+                ordering_physician: 'Dr. Priya Shah'
+              },
+              {
+                id: 'LAB-7004',
+                patient_id: 'PT-1004',
+                test: 'BNP',
+                collected_at: '2024-03-14T05:05:00Z',
+                result: '1280',
+                unit: 'pg/mL',
+                reference_range: '<100',
+                status: 'Critical',
+                ordering_physician: 'Dr. Claire Howard'
+              },
+              {
+                id: 'LAB-7005',
+                patient_id: 'PT-1005',
+                test: 'Peak Flow',
+                collected_at: '2024-03-14T12:20:00Z',
+                result: '350',
+                unit: 'L/min',
+                reference_range: '400-600',
+                status: 'Low',
+                ordering_physician: 'Dr. Liam Chen'
+              },
+              {
+                id: 'LAB-7006',
+                patient_id: 'PT-1006',
+                test: 'Lipid Panel',
+                collected_at: '2024-03-11T09:50:00Z',
+                result: 'LDL 146',
+                unit: 'mg/dL',
+                reference_range: '<100',
+                status: 'High',
+                ordering_physician: 'Dr. Sofia Morales'
+              },
+              {
+                id: 'LAB-7007',
+                patient_id: 'PT-1001',
+                test: 'Blood Culture',
+                collected_at: '2024-03-13T07:15:00Z',
+                result: 'No growth at 48h',
+                unit: 'N/A',
+                reference_range: 'Negative',
+                status: 'Final',
+                ordering_physician: 'Dr. Alicia Nguyen'
+              }
+            ]
+          }
+        },
+        activeTable: 'patients',
+        selectedRow: {
+          table: 'patients',
+          id: 'PT-1001'
+        }
+      };
       
       const mockData = {
         brainSpace: {
@@ -98,7 +506,8 @@
           gamma_params: { amplitude: 100.0 },
           tau_params: { projection_strength: 0.8 }
         },
-        events: []
+        events: [],
+        genesisDb
       };
       
       websocketStore.data.set(mockData);
