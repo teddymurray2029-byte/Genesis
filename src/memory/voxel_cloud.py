@@ -58,15 +58,26 @@ class VoxelCloud:
     MIP levels provide multi-scale representation.
     """
 
-    def __init__(self, width: int = 512, height: int = 512, depth: int = 128,
-                 collapse_config: Optional[Dict] = None, synthesis_config: Optional[Dict] = None):
+    def __init__(
+        self,
+        width: int = 512,
+        height: int = 512,
+        depth: int = 128,
+        collapse_config: Optional[Dict] = None,
+        synthesis_config: Optional[Dict] = None,
+        wavecube_grid_size: int = 128,
+        wavecube_bucket_size: int = 4
+    ):
         self.width = width
         self.height = height
         self.depth = depth
+        self.wavecube_grid_size = wavecube_grid_size
+        self.wavecube_bucket_size = max(1, wavecube_bucket_size)
         self.entries: List[ProtoIdentityEntry] = []
         self.voxels: List[Dict[str, Any]] = []
         self.spatial_index = {}  # Grid-based spatial index
         self.frequency_index: Dict[int, List[int]] = {}  # freq_bin → [entry_ids]
+        self.wavecube_index: Dict[Tuple[int, int, int], List[int]] = {}
         self.octave_hierarchy = OctaveHierarchy(num_octaves=12)  # 12-octave hierarchy
         # Phase 2: Temporal tracking
         self.temporal_buffer = TemporalBuffer(max_length=100)
@@ -127,8 +138,14 @@ class VoxelCloud:
         """Find existing proto-identities with similar frequency signatures."""
         return collapse_ops.find_similar_by_frequency(self, fundamental, harmonics)
 
-    def _create_new_entry(self, proto_identity: np.ndarray, frequency: np.ndarray,
-                         metadata: Dict, fundamental: float, harmonics: np.ndarray) -> ProtoIdentityEntry:
+    def _create_new_entry(
+        self,
+        proto_identity: np.ndarray,
+        frequency: np.ndarray,
+        metadata: Dict,
+        fundamental: float,
+        harmonics: np.ndarray
+    ) -> ProtoIdentityEntry:
         """Create a new proto-identity entry."""
         position = self._frequency_to_position(frequency)
         mip_levels = self._generate_mip_levels(proto_identity)
@@ -147,7 +164,8 @@ class VoxelCloud:
             coords = extract_triplanar_coordinates(
                 frequency,
                 modality=metadata.get('modality', 'text'),
-                octave=metadata.get('octave', 0)
+                octave=metadata.get('octave', 0),
+                grid_size=self.wavecube_grid_size
             )
             wavecube_coords = (coords.x, coords.y, coords.z, coords.w)
         except Exception:
@@ -168,6 +186,15 @@ class VoxelCloud:
             cross_modal_links=[],
             frequency_band=int(freq_band),
             wavecube_coords=wavecube_coords
+        )
+
+    def _wavecube_bucket(self, wavecube_coords: Tuple[int, int, int, float]) -> Tuple[int, int, int]:
+        """Bucket WaveCube coordinates for spatial hashing."""
+        bucket_size = self.wavecube_bucket_size
+        return (
+            int(wavecube_coords[0] // bucket_size),
+            int(wavecube_coords[1] // bucket_size),
+            int(wavecube_coords[2] // bucket_size)
         )
 
     def compute_coherence(self, proto_identity: np.ndarray) -> float:
@@ -283,6 +310,13 @@ class VoxelCloud:
         if freq_bin not in self.frequency_index:
             self.frequency_index[freq_bin] = []
         self.frequency_index[freq_bin].append(entry_idx)
+
+        # Update WaveCube spatial index
+        if entry.wavecube_coords is not None:
+            wavecube_bucket = self._wavecube_bucket(entry.wavecube_coords)
+            if wavecube_bucket not in self.wavecube_index:
+                self.wavecube_index[wavecube_bucket] = []
+            self.wavecube_index[wavecube_bucket].append(entry_idx)
 
     def add_voxel(self, proto_identity: np.ndarray, metadata: Dict) -> None:
         """Compatibility helper to store a proto without explicit frequency."""
