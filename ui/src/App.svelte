@@ -122,6 +122,160 @@
   
   <!-- Control Panel (Right Sidebar) -->
   <ControlPanel />
+
+  <!-- Schema Editor (Right Panel) -->
+  <section class="schema-editor">
+    <header class="schema-header">
+      <div>
+        <h2 class="text-lg font-semibold text-white">Schema Editor</h2>
+        <p class="text-xs text-slate-300">Draft changes are separate from the active schema.</p>
+      </div>
+      <div class="schema-actions">
+        <button class="schema-button primary" on:click={applyChanges}>Apply Changes</button>
+        <button class="schema-button" on:click={discardChanges}>Discard Changes</button>
+        <button class="schema-button" on:click={generateSql}>Generate SQL</button>
+      </div>
+    </header>
+
+    <div class="schema-body">
+      <div class="schema-panel">
+        <div class="schema-panel-header">
+          <h3 class="text-sm font-semibold text-genesis-cyan">Schema Draft</h3>
+          <button class="schema-button subtle" on:click={addTable}>Add Table</button>
+        </div>
+
+        {#each schemaDraft.tables as table, tableIndex}
+          <div class="schema-card">
+            <div class="schema-card-header">
+              <input
+                class="schema-input"
+                value={table.name}
+                on:input={(event) => updateTableName(tableIndex, event.target.value)}
+              />
+              <button class="schema-button danger" on:click={() => removeTable(tableIndex)}>Remove</button>
+            </div>
+
+            <div class="schema-columns">
+              <div class="schema-columns-header">
+                <span>Name</span>
+                <span>Type</span>
+                <span>Nullable</span>
+                <span>Default</span>
+                <span>PK</span>
+                <span>Index</span>
+                <span></span>
+              </div>
+
+              {#each table.columns as column, columnIndex}
+                <div class="schema-column-row">
+                  <input
+                    class="schema-input"
+                    value={column.name}
+                    on:input={(event) => updateColumn(tableIndex, columnIndex, 'name', event.target.value)}
+                  />
+                  <select
+                    class="schema-select"
+                    value={column.type}
+                    on:change={(event) => updateColumn(tableIndex, columnIndex, 'type', event.target.value)}
+                  >
+                    {#each dataTypes as dataType}
+                      <option value={dataType}>{dataType}</option>
+                    {/each}
+                  </select>
+                  <input
+                    type="checkbox"
+                    checked={column.nullable}
+                    on:change={(event) => updateColumn(tableIndex, columnIndex, 'nullable', event.target.checked)}
+                  />
+                  <input
+                    class="schema-input"
+                    value={column.default}
+                    placeholder="default"
+                    on:input={(event) => updateColumn(tableIndex, columnIndex, 'default', event.target.value)}
+                  />
+                  <input
+                    type="checkbox"
+                    checked={column.primaryKey}
+                    on:change={(event) => updateColumn(tableIndex, columnIndex, 'primaryKey', event.target.checked)}
+                  />
+                  <input
+                    type="checkbox"
+                    checked={column.index}
+                    on:change={(event) => updateColumn(tableIndex, columnIndex, 'index', event.target.checked)}
+                  />
+                  <button class="schema-button danger" on:click={() => removeColumn(tableIndex, columnIndex)}>
+                    Remove
+                  </button>
+                </div>
+              {/each}
+            </div>
+
+            <div class="schema-card-footer">
+              <button class="schema-button subtle" on:click={() => addColumn(tableIndex)}>Add Column</button>
+              <div class="schema-indexes">
+                <div class="text-xs uppercase tracking-wide text-slate-400">Indexes</div>
+                {#each getIndexSummary(table) as indexInfo}
+                  <div class="text-xs text-slate-300">
+                    {indexInfo.name} ({indexInfo.columns}) {indexInfo.unique ? 'unique' : ''}
+                  </div>
+                {/each}
+              </div>
+            </div>
+          </div>
+        {/each}
+      </div>
+
+      <div class="schema-panel">
+        <div class="schema-panel-header">
+          <h3 class="text-sm font-semibold text-genesis-cyan">Active Schema</h3>
+          <span class="text-xs text-slate-400">Read-only snapshot</span>
+        </div>
+        {#each activeSchema.tables as table}
+          <div class="schema-card muted">
+            <div class="schema-card-header">
+              <div class="text-sm text-white">{table.name}</div>
+            </div>
+            <div class="schema-columns">
+              {#each table.columns as column}
+                <div class="schema-column-summary">
+                  <div>{column.name}</div>
+                  <div class="text-slate-400">{column.type}</div>
+                  <div class="text-slate-400">{column.nullable ? 'NULL' : 'NOT NULL'}</div>
+                  <div class="text-slate-400">{column.default || '—'}</div>
+                  <div class="text-slate-400">{column.primaryKey ? 'PK' : ''}</div>
+                  <div class="text-slate-400">{column.index ? 'IDX' : ''}</div>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/each}
+      </div>
+
+      <div class="schema-panel">
+        <div class="schema-panel-header">
+          <h3 class="text-sm font-semibold text-genesis-cyan">Pending Changes</h3>
+          <span class="text-xs text-slate-400">{pendingChanges.length} changes</span>
+        </div>
+        {#if pendingChanges.length}
+          <ul class="schema-changes">
+            {#each pendingChanges as change}
+              <li class="schema-change-item">
+                <span class="schema-badge {change.type}">{change.type}</span>
+                <span>{formatChange(change)}</span>
+              </li>
+            {/each}
+          </ul>
+        {:else}
+          <p class="text-xs text-slate-400">No pending changes. Draft matches active schema.</p>
+        {/if}
+
+        <div class="schema-sql">
+          <div class="text-xs uppercase tracking-wide text-slate-400 mb-2">Generated SQL</div>
+          <textarea class="schema-textarea" bind:value={generatedSql} readonly placeholder="SQL output will appear here."></textarea>
+        </div>
+      </div>
+    </div>
+  </section>
   
   <!-- Chat Bar (Bottom) -->
   <ChatBar />
