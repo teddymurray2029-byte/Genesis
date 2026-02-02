@@ -31,6 +31,7 @@ Example:
         # is_new=False: existing proto strengthened (resonance += 1)
 """
 
+import math
 import numpy as np
 from typing import List, Optional, Tuple
 from .voxel_cloud import VoxelCloud, ProtoIdentityEntry
@@ -52,13 +53,57 @@ class VoxelCloudClustering:
         }
 
 
+def _adaptive_spatial_tolerance(octave: int, base_tolerance: float = 1.0) -> float:
+    """Scale spatial tolerance based on octave level."""
+    octave_scale = 1.0 + (abs(octave) * 0.15)
+    return min(4.0, max(0.5, base_tolerance * octave_scale))
+
+
+def _wavecube_bucket(
+    wavecube_coords: Tuple[int, int, int, float],
+    bucket_size: int
+) -> Tuple[int, int, int]:
+    """Compute WaveCube spatial hash bucket."""
+    return (
+        int(wavecube_coords[0] // bucket_size),
+        int(wavecube_coords[1] // bucket_size),
+        int(wavecube_coords[2] // bucket_size)
+    )
+
+
+def _iter_wavecube_candidates(
+    voxel_cloud: VoxelCloud,
+    wavecube_coords: Tuple[int, int, int, float],
+    spatial_tolerance: float
+) -> Optional[List[ProtoIdentityEntry]]:
+    """Collect candidate entries using WaveCube spatial hashing."""
+    if not hasattr(voxel_cloud, "wavecube_index") or not voxel_cloud.wavecube_index:
+        return None
+
+    bucket_size = max(1, getattr(voxel_cloud, "wavecube_bucket_size", 1))
+    bucket = _wavecube_bucket(wavecube_coords, bucket_size)
+    radius = int(math.ceil(spatial_tolerance / bucket_size))
+
+    candidate_indices: List[int] = []
+    for dx in range(-radius, radius + 1):
+        for dy in range(-radius, radius + 1):
+            for dz in range(-radius, radius + 1):
+                neighbor = (bucket[0] + dx, bucket[1] + dy, bucket[2] + dz)
+                candidate_indices.extend(voxel_cloud.wavecube_index.get(neighbor, []))
+
+    if not candidate_indices:
+        return None
+
+    return [voxel_cloud.entries[idx] for idx in candidate_indices]
+
+
 def find_nearest_proto(
     voxel_cloud: VoxelCloud,
     proto_identity: np.ndarray,
     octave: int,
     similarity_threshold: float = 0.90,
     wavecube_coords: Optional[Tuple[int, int, int, float]] = None,
-    spatial_tolerance: float = 1.0
+    spatial_tolerance: Optional[float] = 1.0
 ) -> Optional[ProtoIdentityEntry]:
     """Find nearest existing proto-identity at specified octave using 3D spatial distance.
 
@@ -71,7 +116,7 @@ def find_nearest_proto(
         octave: Octave level to search at
         similarity_threshold: Minimum similarity for cosine matching (0.90 = 90%)
         wavecube_coords: Optional WaveCube coordinates (x, y, z, w) for spatial clustering
-        spatial_tolerance: Maximum distance for spatial match (1.0 = exact matching)
+        spatial_tolerance: Maximum distance for spatial match (None = adaptive)
 
     Returns:
         Matching ProtoIdentityEntry or None if no match found
@@ -80,6 +125,9 @@ def find_nearest_proto(
 
     # Use spatial distance if coordinates available
     if wavecube_coords is not None:
+        if spatial_tolerance is None:
+            spatial_tolerance = _adaptive_spatial_tolerance(octave)
+
         best_distance = float('inf')
 
         # Create coordinate object for distance computation
@@ -87,8 +135,12 @@ def find_nearest_proto(
         WaveCubeCoordinates = namedtuple('WaveCubeCoordinates', ['x', 'y', 'z', 'w'])
         query_coords = WaveCubeCoordinates(*wavecube_coords)
 
+        candidates = _iter_wavecube_candidates(
+            voxel_cloud, wavecube_coords, spatial_tolerance
+        ) or voxel_cloud.entries
+
         # Search only entries at the same octave with coordinates
-        for entry in voxel_cloud.entries:
+        for entry in candidates:
             if entry.octave != octave or entry.wavecube_coords is None:
                 continue
 
@@ -139,7 +191,7 @@ def add_or_strengthen_proto(
     modality: str = 'text',
     similarity_threshold: float = 0.90,
     wavecube_coords: Optional[Tuple[int, int, int, float]] = None,
-    spatial_tolerance: float = 1.0
+    spatial_tolerance: Optional[float] = 1.0
 ) -> Tuple[ProtoIdentityEntry, bool]:
     """Add new proto or strengthen existing one via spatial clustering.
 
@@ -158,7 +210,7 @@ def add_or_strengthen_proto(
         modality: Modality type
         similarity_threshold: Clustering threshold for cosine similarity
         wavecube_coords: Optional WaveCube coordinates for spatial clustering
-        spatial_tolerance: Maximum distance for spatial match (1.0 = exact matching)
+        spatial_tolerance: Maximum distance for spatial match (None = adaptive)
 
     Returns:
         (entry, is_new) tuple
@@ -238,6 +290,17 @@ def add_or_strengthen_proto(
         if freq_bin not in voxel_cloud.frequency_index:
             voxel_cloud.frequency_index[freq_bin] = []
         voxel_cloud.frequency_index[freq_bin].append(entry_idx)
+
+        # Update WaveCube spatial index
+        if entry.wavecube_coords is not None:
+            if hasattr(voxel_cloud, "_wavecube_bucket"):
+                wavecube_bucket = voxel_cloud._wavecube_bucket(entry.wavecube_coords)
+            else:
+                bucket_size = max(1, getattr(voxel_cloud, "wavecube_bucket_size", 1))
+                wavecube_bucket = _wavecube_bucket(entry.wavecube_coords, bucket_size)
+            if wavecube_bucket not in voxel_cloud.wavecube_index:
+                voxel_cloud.wavecube_index[wavecube_bucket] = []
+            voxel_cloud.wavecube_index[wavecube_bucket].append(entry_idx)
 
         return entry, True
 
