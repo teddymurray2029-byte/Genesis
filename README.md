@@ -387,7 +387,9 @@ curl -X POST http://localhost:8001/query \\
 If you need to swap an existing MySQL connection string for Genesis, start the
 MySQL-compatible gateway. It speaks the MySQL wire protocol, allows `SELECT`,
 `INSERT`, `UPDATE`, and `DELETE` statements against the same `entries` table,
-and authenticates with a configurable username/password.
+and authenticates with a configurable username/password. Set `GENESIS_DB_PATH`
+to control where the JSON-backed database is persisted, and optionally set
+`GENESIS_VOXEL_CLOUD_PATH` to bootstrap from an existing voxel cloud on first run.
 
 ```bash
 export GENESIS_DB_PATH=/path/to/genesis_db.json
