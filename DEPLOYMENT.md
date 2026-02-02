@@ -11,12 +11,13 @@ Comprehensive guide for deploying Genesis in production environments with monito
 1. [System Requirements](#system-requirements)
 2. [Installation](#installation)
 3. [Configuration](#configuration)
-4. [Running Training](#running-training)
-5. [Monitoring Metrics](#monitoring-metrics)
-6. [Troubleshooting](#troubleshooting)
-7. [Performance Tuning](#performance-tuning)
-8. [Scaling](#scaling)
-9. [Disaster Recovery](#disaster-recovery)
+4. [Upgrade](#upgrade)
+5. [Running Training](#running-training)
+6. [Monitoring Metrics](#monitoring-metrics)
+7. [Troubleshooting](#troubleshooting)
+8. [Performance Tuning](#performance-tuning)
+9. [Scaling](#scaling)
+10. [Disaster Recovery](#disaster-recovery)
 
 ---
 
@@ -274,6 +275,47 @@ sudo systemctl start genesis-training.service
 sudo systemctl status genesis-training.service
 sudo journalctl -u genesis-training.service -f
 ```
+
+---
+
+## Upgrade
+
+Use this checklist when upgrading Genesis in place. The steps reference the same paths and environment variables defined above to keep the workflow concrete.
+
+1. **Back up persisted memory + checkpoints** (stop services or snapshot storage first if you need a consistent point-in-time view).
+   ```bash
+   # Persisted memory snapshots
+   sudo rsync -av "${GENESIS_MEMORY_DIR}/" /backup/genesis/memory/
+
+   # Model checkpoints
+   sudo rsync -av "${GENESIS_CHECKPOINT_DIR}/" /backup/genesis/checkpoints/
+   ```
+
+2. **Update system packages + toolchains + Python deps**.
+   ```bash
+   sudo pacman -Syu
+   rustup update stable
+   pip install -r requirements.txt
+   ```
+
+3. **Run migration tooling against persisted snapshots**.
+   ```bash
+   # Example: migrate pickle-backed memory/checkpoints in ${GENESIS_MEMORY_DIR}
+   python scripts/migrate_pickles.py "${GENESIS_MEMORY_DIR}"
+
+   # If you have the new VoxelCloud migration helper, run it against the same snapshots.
+   # (Keep the working set pointed at ${GENESIS_MEMORY_DIR} so the migration touches
+   #  the same persisted memory described in the configuration section.)
+   ```
+
+4. **Validate the upgrade via health checks and logs**.
+   ```bash
+   # Confirm logs are flowing to the configured file
+   sudo tail -n 200 "${GENESIS_LOG_FILE}"
+
+   # Optional: validate systemd service health
+   sudo systemctl status genesis-training.service
+   ```
 
 ---
 
