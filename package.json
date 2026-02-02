@@ -1,5 +1,5 @@
 {
-  "name": "genesis-root",
+  "name": "@netlify/genesis-root",
   "private": true,
   "version": "0.0.0",
   "scripts": {
@@ -9,5 +9,29 @@
     "preview": "npm --prefix ui run preview",
     "lint": "npm --prefix ui run lint",
     "test": "npm --prefix ui run test"
+  },
+  "description": "Disclaimer: This project has basically been abandoned. If it finds community support I will continue to maintain it in terms of public support. This project is not 100% complete and 100% perfect, but it lays a foundation for a new way of handling memory, identity and context.",
+  "main": "genesis.js",
+  "directories": {
+    "doc": "docs",
+    "example": "examples",
+    "lib": "lib",
+    "test": "tests"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/teddymurray2029-byte/Genesis.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/teddymurray2029-byte/Genesis/issues"
+  },
+  "homepage": "https://github.com/teddymurray2029-byte/Genesis#readme",
+  "devDependencies": {
+    "@netlify/blobs": "^10.5.0",
+    "@netlify/functions": "^5.1.2",
+    "typescript": "^5.9.3"
   }
 }

@@ -1,7 +1,12 @@
 [build]
-  command = "npm --prefix ui install && npm --prefix ui run build"
+  command = "npm install && npm --prefix ui install && npm --prefix ui run build"
   publish = "ui/dist"
 
+[functions]
+  directory = "netlify/functions"
+
+# SPA fallback - Netlify Functions routes take priority
+# The functions define their paths via export const config
 [[redirects]]
   from = "/*"
   to = "/index.html"
