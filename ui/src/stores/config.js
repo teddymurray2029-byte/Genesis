@@ -3,9 +3,13 @@ import { derived, writable } from 'svelte/store';
 const env = import.meta.env;
 const STORAGE_KEY = 'genesis-ui-settings';
 
+const defaultBackendBaseUrl = env.VITE_GENESISDB_HTTP_URL ?? 'http://localhost:8000';
+const defaultSqlApiBaseUrl =
+  env.VITE_GENESISDB_SQL_API_URL ?? env.VITE_GENESISDB_HTTP_URL ?? defaultBackendBaseUrl;
+
 const defaultSettings = {
-  backendBaseUrl: env.VITE_GENESISDB_HTTP_URL ?? 'http://localhost:8080',
-  sqlApiBaseUrl: env.VITE_GENESISDB_SQL_API_URL ?? 'http://localhost:8080'
+  backendBaseUrl: defaultBackendBaseUrl,
+  sqlApiBaseUrl: defaultSqlApiBaseUrl
 };
 
 const useMockData = env.VITE_GENESISDB_USE_MOCK_DATA
