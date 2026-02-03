@@ -48,6 +48,7 @@ class QueryResult:
     columns: list[str]
     affected_rows: int
     operation: str
+    time_complexity: str | None = None
 
 
 @dataclass(frozen=True)
@@ -88,6 +89,21 @@ class GenesisDB:
         if command == "delete":
             return self._delete(normalized)
         raise ValueError("Only SELECT, INSERT, UPDATE, and DELETE statements are supported")
+
+    def estimate_time_complexity(self, sql: str) -> str:
+        normalized = sql.strip().rstrip(";").strip()
+        if not normalized:
+            return "O(1)"
+        command = normalized.split()[0].lower()
+        if command == "select":
+            return self._estimate_select_complexity(normalized)
+        if command == "update":
+            return self._estimate_update_complexity(normalized)
+        if command == "delete":
+            return self._estimate_delete_complexity(normalized)
+        if command == "insert":
+            return "O(1)"
+        return "O(n)"
 
     def _load(self, voxel_cloud_path: Optional[str]) -> None:
         if os.path.exists(self._db_path):
@@ -290,6 +306,95 @@ class GenesisDB:
 
         return QueryResult(rows=[], columns=[], affected_rows=deleted, operation="delete")
 
+    def _estimate_select_complexity(self, sql: str) -> str:
+        match = re.match(
+            r"^select\s+(?P<select>.+?)\s+from\s+entries"
+            r"(?:\s+where\s+(?P<where>.+?))?"
+            r"(?:\s+order\s+by\s+(?P<order>.+?))?"
+            r"(?:\s+limit\s+(?P<limit>\d+))?$",
+            sql,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if not match:
+            return "O(n)"
+        order_clause = match.group("order")
+        conditions = self._parse_conditions(match.group("where"))
+        if order_clause:
+            return "O(n log n)"
+        if self._uses_indexed_lookup(conditions):
+            return "O(1)"
+        return "O(n)"
+
+    def _estimate_update_complexity(self, sql: str) -> str:
+        match = re.match(
+            r"^update\s+entries\s+set\s+(?P<assign>.+?)(?:\s+where\s+(?P<where>.+))?$",
+            sql,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if not match:
+            return "O(n)"
+        conditions = self._parse_conditions(match.group("where"))
+        if self._uses_indexed_lookup(conditions):
+            return "O(1)"
+        return "O(n)"
+
+    def _estimate_select_complexity(self, sql: str) -> str:
+        match = re.match(
+            r"^select\s+(?P<select>.+?)\s+from\s+entries"
+            r"(?:\s+where\s+(?P<where>.+?))?"
+            r"(?:\s+order\s+by\s+(?P<order>.+?))?"
+            r"(?:\s+limit\s+(?P<limit>\d+))?$",
+            sql,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if not match:
+            return "O(n)"
+        order_clause = match.group("order")
+        conditions = self._parse_conditions(match.group("where"))
+        if order_clause:
+            return "O(n log n)"
+        if self._uses_indexed_lookup(conditions):
+            return "O(1)"
+        return "O(n)"
+
+    def _estimate_update_complexity(self, sql: str) -> str:
+        match = re.match(
+            r"^update\s+entries\s+set\s+(?P<assign>.+?)(?:\s+where\s+(?P<where>.+))?$",
+            sql,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if not match:
+            return "O(n)"
+        conditions = self._parse_conditions(match.group("where"))
+        if self._uses_indexed_lookup(conditions):
+            return "O(1)"
+        return "O(n)"
+
+    def _estimate_delete_complexity(self, sql: str) -> str:
+        match = re.match(
+            r"^delete\s+from\s+entries(?:\s+where\s+(?P<where>.+))?$",
+            sql,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if not match:
+            return "O(n)"
+        conditions = self._parse_conditions(match.group("where"))
+        if self._uses_indexed_lookup(conditions):
+            return "O(1)"
+        return "O(n)"
+
+    def _uses_indexed_lookup(self, conditions: list[Condition]) -> bool:
+        if len(conditions) != 1:
+            return False
+        condition = conditions[0]
+        if condition.operator != "=":
+            return False
+        if condition.column == "entry_index" and isinstance(condition.value, int):
+            return True
+        if condition.column == "id" and isinstance(condition.value, str):
+            return True
+        return False
+
     def _parse_select_columns(self, clause: str) -> tuple[list[str], dict[str, str]]:
         clause = clause.strip()
         if clause == "*":
@@ -441,3 +546,9 @@ class GenesisDB:
         if entry_id is not None and entry_id != original_id:
             if entry_id in self._index_by_id:
                 raise ValueError(f"id {entry_id} already exists")
+
+
+class SofiaDatabase(GenesisDB):
+    """Alias for GenesisDB."""
+
+    pass

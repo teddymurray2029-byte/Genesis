@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from typing import Any, Iterable, Optional
 
 from fastapi import FastAPI, HTTPException
@@ -27,6 +28,8 @@ class QueryResponse(BaseModel):
     columns: list[str] = Field(default_factory=list)
     affected_rows: int = 0
     operation: str = "select"
+    execution_time_ms: float = 0.0
+    time_complexity: str | None = None
 
 
 class SchemaColumn(BaseModel):
@@ -71,32 +74,42 @@ def _load_log_store(db_path: str) -> LogStore:
 def _query_entries(db: GenesisDB, sql: str, params: Iterable[Any]) -> QueryResponse:
     if params:
         raise HTTPException(status_code=400, detail="SQL parameters are not supported by GenesisDB")
+    complexity = db.estimate_time_complexity(sql)
+    start = time.perf_counter()
     try:
         result = db.execute_sql(sql)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    elapsed_ms = (time.perf_counter() - start) * 1000
     return QueryResponse(
         rows=result.rows,
         row_count=len(result.rows),
         columns=result.columns,
         affected_rows=result.affected_rows,
         operation=result.operation,
+        execution_time_ms=elapsed_ms,
+        time_complexity=complexity,
     )
 
 
 def _query_logs(log_store: LogStore, sql: str, params: Iterable[Any]) -> QueryResponse:
     if params:
         raise HTTPException(status_code=400, detail="SQL parameters are not supported by the log store")
+    complexity = log_store.estimate_time_complexity(sql)
+    start = time.perf_counter()
     try:
         result = log_store.execute_sql(sql)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    elapsed_ms = (time.perf_counter() - start) * 1000
     return QueryResponse(
         rows=result.rows,
         row_count=len(result.rows),
         columns=result.columns,
         affected_rows=result.affected_rows,
         operation=result.operation,
+        execution_time_ms=elapsed_ms,
+        time_complexity=complexity,
     )
 
 
