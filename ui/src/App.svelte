@@ -58,6 +58,7 @@
 
   onMount(() => {
     console.log('🎨 App.svelte mounted');
+    document.title = 'Genesis Data Console';
     
     // Initialize WebSocket connection (disabled for now - using mock data)
     // websocketStore.connect('ws://localhost:8000/ws');
