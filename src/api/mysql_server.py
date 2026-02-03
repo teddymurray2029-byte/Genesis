@@ -4,12 +4,14 @@ import asyncio
 import hashlib
 import logging
 import os
+import re
 import struct
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
 from src.api.sql_utils import normalize_sql
 from src.db.genesis_db import GenesisDB
+from src.db.log_store import LogStore, QueryResult, resolve_log_db_path
 
 LOGGER = logging.getLogger(__name__)
 
@@ -120,10 +122,10 @@ def _column_type_from_value(value: object) -> int:
     return MYSQL_TYPE_VAR_STRING
 
 
-def _column_definition(name: str, column_type: int) -> bytes:
+def _column_definition(name: str, column_type: int, table: str = "entries") -> bytes:
     catalog = _pack_lenenc_str("def")
     schema = _pack_lenenc_str("")
-    table = _pack_lenenc_str("entries")
+    table = _pack_lenenc_str(table)
     org_table = _pack_lenenc_str("")
     column_name = _pack_lenenc_str(name)
     org_name = _pack_lenenc_str(name)
@@ -162,9 +164,13 @@ class MySQLGateway:
         self._user = user
         self._password = password
         self._db = self._load_db()
+        self._log_store = self._load_log_store()
 
     def _load_db(self) -> GenesisDB:
         return GenesisDB(db_path=self._db_path, voxel_cloud_path=self._voxel_cloud_path)
+
+    def _load_log_store(self) -> LogStore:
+        return LogStore(db_path=resolve_log_db_path(self._db_path))
 
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         connection_id = id(writer) & 0xFFFFFFFF
@@ -257,6 +263,11 @@ class MySQLGateway:
             await writer.drain()
             return
 
+        show_result = self._handle_show_query(normalized)
+        if show_result is not None:
+            await self._send_result(writer, show_result, table_name="information_schema")
+            return
+
         try:
             sql = normalize_sql(normalized)
         except Exception as exc:
@@ -265,12 +276,86 @@ class MySQLGateway:
             return
 
         try:
-            result = self._db.execute_sql(sql)
+            result, table_name = self._execute_sql(sql)
         except Exception as exc:
             writer.write(_pack_packet(_error_packet(str(exc)), sequence_id))
             await writer.drain()
             return
+        await self._send_result(writer, result, table_name=table_name)
 
+    def _execute_sql(self, sql: str) -> tuple[QueryResult, str]:
+        if self._targets_logs(sql):
+            return self._log_store.execute_sql(sql), "logs"
+        return self._db.execute_sql(sql), "entries"
+
+    def _handle_show_query(self, query: str) -> Optional[QueryResult]:
+        normalized = query.strip().rstrip(";")
+        lower = normalized.lower()
+        if re.match(r"^show\\s+tables\\b", lower):
+            rows = [
+                {"Tables_in_genesis": "entries"},
+                {"Tables_in_genesis": "logs"},
+            ]
+            return QueryResult(rows=rows, columns=["Tables_in_genesis"], affected_rows=0, operation="select")
+
+        column_match = re.match(
+            r"^show\\s+(?:full\\s+)?columns\\s+from\\s+(?P<table>\\w+)\\b",
+            lower,
+        )
+        describe_match = re.match(r"^(?:describe|desc)\\s+(?P<table>\\w+)\\b", lower)
+        match = column_match or describe_match
+        if match:
+            table = match.group("table")
+            if table == "logs":
+                schema = self._log_store.schema
+            elif table == "entries":
+                schema = self._db.schema
+            else:
+                raise ValueError(f"Unknown table '{table}'")
+            rows = [
+                {
+                    "Field": column["name"],
+                    "Type": self._format_schema_type(column["type"]),
+                    "Null": "YES",
+                    "Key": "",
+                    "Default": None,
+                    "Extra": "",
+                }
+                for column in schema
+            ]
+            return QueryResult(
+                rows=rows,
+                columns=["Field", "Type", "Null", "Key", "Default", "Extra"],
+                affected_rows=0,
+                operation="select",
+            )
+        return None
+
+    def _format_schema_type(self, schema_type: str) -> str:
+        mapping = {
+            "INTEGER": "int",
+            "REAL": "double",
+            "TEXT": "varchar(255)",
+        }
+        return mapping.get(schema_type.upper(), schema_type.lower())
+
+    def _targets_logs(self, sql: str) -> bool:
+        normalized = sql.lower()
+        patterns = [
+            r"\\bfrom\\s+logs\\b",
+            r"\\binto\\s+logs\\b",
+            r"\\bupdate\\s+logs\\b",
+            r"\\bdelete\\s+from\\s+logs\\b",
+        ]
+        return any(re.search(pattern, normalized) for pattern in patterns)
+
+    async def _send_result(
+        self,
+        writer: asyncio.StreamWriter,
+        result: QueryResult,
+        table_name: str = "entries",
+    ) -> None:
+        sequence_id = 0
         if result.operation != "select":
             writer.write(_pack_packet(_ok_packet(result.affected_rows), sequence_id))
             await writer.drain()
@@ -287,7 +372,7 @@ class MySQLGateway:
         column_types = self._infer_column_types(result.columns, result.rows)
         sequence_id = 1
         for name, column_type in zip(result.columns, column_types):
-            writer.write(_pack_packet(_column_definition(name, column_type), sequence_id))
+            writer.write(_pack_packet(_column_definition(name, column_type, table=table_name), sequence_id))
             sequence_id += 1
         writer.write(_pack_packet(_eof_packet(), sequence_id))
         sequence_id += 1

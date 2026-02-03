@@ -7,6 +7,31 @@
   import { websocketStore, connectedStore, lastSyncStore, connectionErrorStore } from './stores/websocket.js';
   import { genesisDbConfig } from './config/db.js';
   
+  const API_BASE = import.meta.env.VITE_GENESIS_API_URL || 'http://localhost:8000';
+
+  let databases = [];
+  let tables = [];
+  let selectedDatabase = '';
+  let selectedTable = '';
+  let rows = [];
+  let schemaColumns = [];
+  let schemaConstraints = [];
+  let schemaIndexes = [];
+  let schemaConstraintsDraft = '';
+  let schemaIndexesDraft = '';
+  let filterText = '';
+  let page = 0;
+  let pageSize = 25;
+  let draftRow = {};
+  let selectedRowKey = null;
+  let isNewRecord = false;
+  let errorMessage = '';
+  let isLoadingDatabases = false;
+  let isLoadingTables = false;
+  let isLoadingRows = false;
+  let isLoadingSchema = false;
+  let isMutating = false;
+
   onMount(() => {
     console.log('🎨 App.svelte mounted');
     
