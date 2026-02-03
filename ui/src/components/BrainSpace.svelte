@@ -8,6 +8,12 @@
   let scene, camera, renderer;
   let particleSystem, wavetableLines;
   let controls;
+  let raycaster;
+  let mouse;
+  let pointMetadata = [];
+  let selectedPoint = null;
+  let selectedPointPosition = null;
+  let selectedScreen = { x: 0, y: 0 };
   
   // Filter state
   let selectedFilters = {
@@ -34,6 +40,10 @@
       particleSystem.geometry.dispose();
       particleSystem.material.dispose();
     }
+    
+    selectedPoint = null;
+    selectedPointPosition = null;
+    pointMetadata = [];
     
     // Use memories (point cloud) if available, otherwise fall back to clusters
     const dataMemories = memories && memories.length > 0 ? memories : null;
@@ -89,6 +99,14 @@
           brainY + offsetY,
           brainZ + offsetZ
         );
+        
+        pointMetadata.push({
+          type: 'memory',
+          id: memory.id ?? memory.uuid ?? i,
+          coherence,
+          position: memory.position || basePos,
+          metadata: memory.metadata || memory.meta || null
+        });
           
         // Color: Cyan/Electric Blue particles (brain theme)
         colors.push(0.0, 0.3 + coherence * 0.7, 0.6 + coherence * 0.4);
@@ -121,6 +139,14 @@
         const brainZ = baseZ * (0.85 + normalizedRadius * 0.15);
         
         positions.push(brainX, brainY, brainZ);
+        pointMetadata.push({
+          type: 'cluster',
+          id: cluster.id ?? i,
+          coherence: cluster.coherence || 0.7,
+          position: pos,
+          memoryCount: cluster.memory_count || 0,
+          metadata: cluster.metadata || null
+        });
         
         // Color: Cyan/Electric Blue particles
         const coherence = cluster.coherence || 0.7;
@@ -149,6 +175,11 @@
         const brainZ = z * (0.85 + normalizedRadius * 0.15);
         
         positions.push(brainX, brainY, brainZ);
+        pointMetadata.push({
+          type: 'test',
+          id: i,
+          position: [brainX, brainY, brainZ]
+        });
         
         colors.push(0.0, 0.5, 1.0); // Cyan/blue for test particles
         sizes.push(0.1);
@@ -694,6 +725,21 @@
   let animationFrame;
   let time = 0;
   
+  const formatVector = (value) => {
+    if (!value || !Array.isArray(value)) return '—';
+    return value.map((entry) => Number(entry).toFixed(2)).join(', ');
+  };
+  
+  const updateSelectedScreen = () => {
+    if (!selectedPointPosition || !camera || !renderer || !canvasContainer) return;
+    const projected = selectedPointPosition.clone().project(camera);
+    const rect = canvasContainer.getBoundingClientRect();
+    selectedScreen = {
+      x: (projected.x * 0.5 + 0.5) * rect.width,
+      y: (-projected.y * 0.5 + 0.5) * rect.height
+    };
+  };
+  
   function animate() {
     animationFrame = requestAnimationFrame(animate);
     time += 0.016; // ~60fps
@@ -709,6 +755,10 @@
     
     if (controls) {
       controls.update();
+    }
+    
+    if (selectedPointPosition) {
+      updateSelectedScreen();
     }
     
     if (renderer && scene && camera) {
@@ -759,6 +809,10 @@
     if (!existingCanvas) {
       canvasContainer.appendChild(renderer.domElement);
     }
+    
+    raycaster = new THREE.Raycaster();
+    raycaster.params.Points.threshold = 0.3;
+    mouse = new THREE.Vector2();
     
     // Add OrbitControls for camera interaction (optional - will work without it)
     try {
@@ -812,8 +866,33 @@
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
       renderer.setSize(width, height);
+      if (selectedPointPosition) {
+        updateSelectedScreen();
+      }
     };
     window.addEventListener('resize', handleResize);
+    
+    const handleClick = (event) => {
+      if (!renderer || !camera || !particleSystem || pointMetadata.length === 0) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObject(particleSystem);
+      if (intersects.length > 0) {
+        const hit = intersects[0];
+        const meta = pointMetadata[hit.index];
+        if (meta) {
+          selectedPoint = meta;
+          selectedPointPosition = hit.point.clone();
+          updateSelectedScreen();
+          return;
+        }
+      }
+      selectedPoint = null;
+      selectedPointPosition = null;
+    };
+    renderer.domElement.addEventListener('click', handleClick);
     
     console.log('✅ Three.js scene initialized');
     
@@ -832,6 +911,9 @@
         filterUnsubscribe();
       }
       window.removeEventListener('resize', handleResize);
+      if (renderer?.domElement) {
+        renderer.domElement.removeEventListener('click', handleClick);
+      }
       if (animationFrame) {
         cancelAnimationFrame(animationFrame);
       }
@@ -854,6 +936,38 @@
 
 <div bind:this={canvasContainer} class="absolute inset-0" style="z-index: 0;">
   <canvas></canvas>
+  {#if selectedPoint}
+    <div
+      class="voxel-tooltip"
+      style="left: {selectedScreen.x}px; top: {selectedScreen.y}px;"
+    >
+      <div class="voxel-tooltip__title">Voxel: {selectedPoint.type}</div>
+      <div class="voxel-tooltip__row">
+        <span>ID:</span>
+        <span>{selectedPoint.id}</span>
+      </div>
+      {#if selectedPoint.coherence !== undefined}
+        <div class="voxel-tooltip__row">
+          <span>Coherence:</span>
+          <span>{Number(selectedPoint.coherence).toFixed(2)}</span>
+        </div>
+      {/if}
+      {#if selectedPoint.memoryCount !== undefined}
+        <div class="voxel-tooltip__row">
+          <span>Memory Count:</span>
+          <span>{selectedPoint.memoryCount}</span>
+        </div>
+      {/if}
+      <div class="voxel-tooltip__row">
+        <span>Position:</span>
+        <span>{formatVector(selectedPoint.position)}</span>
+      </div>
+      {#if selectedPoint.metadata}
+        <div class="voxel-tooltip__meta">Metadata</div>
+        <pre>{JSON.stringify(selectedPoint.metadata, null, 2)}</pre>
+      {/if}
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -861,5 +975,54 @@
     display: block;
     width: 100%;
     height: 100%;
+  }
+  
+  .voxel-tooltip {
+    position: absolute;
+    transform: translate(12px, -12px);
+    max-width: 260px;
+    background: rgba(6, 12, 26, 0.9);
+    border: 1px solid rgba(0, 200, 255, 0.4);
+    border-radius: 8px;
+    padding: 12px;
+    color: #e5f6ff;
+    font-size: 12px;
+    line-height: 1.4;
+    pointer-events: none;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+    z-index: 2;
+  }
+  
+  .voxel-tooltip__title {
+    font-weight: 600;
+    font-size: 13px;
+    margin-bottom: 6px;
+    color: #7be7ff;
+    text-transform: capitalize;
+  }
+  
+  .voxel-tooltip__row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  
+  .voxel-tooltip__row span:first-child {
+    color: rgba(229, 246, 255, 0.7);
+  }
+  
+  .voxel-tooltip__meta {
+    margin-top: 8px;
+    font-weight: 600;
+    color: #7be7ff;
+  }
+  
+  .voxel-tooltip pre {
+    margin: 6px 0 0;
+    white-space: pre-wrap;
+    max-height: 140px;
+    overflow: auto;
+    color: rgba(229, 246, 255, 0.8);
   }
 </style>
