@@ -44,6 +44,8 @@
     value === null || value === undefined ? '' : String(value);
 
   const isSameValue = (left, right) => normalizeRowValue(left) === normalizeRowValue(right);
+  const hasUnsavedChanges = (row, draft, tableColumns = []) =>
+    !!row && tableColumns.some((column) => !isSameValue(draft?.[column.name], row?.[column.name]));
 
   $: genesisDb = $dataStore?.genesisDb;
   $: database = genesisDb?.database;
@@ -57,6 +59,7 @@
     rows.find((row) => rowKey(row, columns) === selectedRowKey) ||
     rows.find((row) => rowKey(row, columns) === genesisDb?.selectedRow?.id) ||
     rows[0];
+  $: isDirty = hasUnsavedChanges(selectedRow, draftRow, columns);
   $: if (selectedRow) {
     draftRow = { ...selectedRow };
   }
@@ -284,6 +287,12 @@
   };
 
   const handleSelectRow = (row) => {
+    if (isDirty) {
+      const confirmChange = window.confirm(
+        'You have unsaved changes. Are you sure you want to switch rows and discard them?'
+      );
+      if (!confirmChange) return;
+    }
     selectedRowKey = rowKey(row, columns);
   };
 
@@ -426,7 +435,12 @@
 
     <aside class="crud-detail">
       <div class="detail-card">
-        <h3>Update the selected row in {selectedTable || genesisDb?.activeTable}</h3>
+        <div class="detail-header">
+          <h3>Update the selected row in {selectedTable || genesisDb?.activeTable}</h3>
+          {#if isDirty}
+            <span class="unsaved-badge">Unsaved changes</span>
+          {/if}
+        </div>
         <div class="detail-fields">
           {#each columns as column}
             <label>
@@ -773,6 +787,30 @@
     border-radius: 1.25rem;
     padding: 1.25rem;
     box-shadow: 0 20px 40px rgba(15, 23, 42, 0.2);
+  }
+
+  .detail-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .detail-header h3 {
+    margin-bottom: 0;
+  }
+
+  .unsaved-badge {
+    background: rgba(245, 158, 11, 0.15);
+    color: #b45309;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
   }
 
   .detail-fields {
