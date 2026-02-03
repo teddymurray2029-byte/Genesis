@@ -42,6 +42,20 @@ Environment variables:
 
 ---
 
+## Prerequisites (local development)
+
+- Python 3.10+
+- Node.js 18+
+- Rust (optional, only if building the Rust library)
+
+Install Node dependencies at the repo root before using the CLI:
+
+```bash
+npm install
+```
+
+---
+
 ## Local setup
 
 ### 1) Install Python dependencies
