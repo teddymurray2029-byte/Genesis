@@ -1,26 +1,24 @@
 # Genesis
 
-Genesis is an experimental, multi-language research prototype for a multi‑octave memory system. The repository combines Python prototypes for FFT-based encoding and memory storage, a FastAPI backend for visualization and SQL access, a Svelte UI for live visualization, and a small Rust library for categorical type system experiments.
+Genesis is a multi-language research prototype exploring a multi‑octave memory system. The repository combines Python pipelines for FFT-based encoding and storage, a FastAPI backend with streaming visualization, a Svelte UI, and a small Rust library for categorical type system experiments. A lightweight Node CLI helps launch the services.
 
-> **Status**: Work in progress. The JavaScript CLI currently implements only the `service` command; the other commands are stubs that print a "not yet implemented" message.
+> **Status**: Work in progress. The Node CLI currently implements only the `service` command; other commands are stubs.
 
 ---
 
-## What’s in this repo
+## Repository map
 
 - **Python memory pipeline**: FFT encoders/decoders, triplanar projection, and multi‑octave orchestration in `src/pipeline/` and `src/memory/`.
 - **WaveCube integration**: Layered 3D storage and compression utilities under `lib/wavecube/` with a bridge in `src/memory/wavecube_integration.py`.
 - **Visualization backend**: FastAPI service with health, log CRUD, and WebSocket streaming in `src/visualization/server.py`.
-- **SQL API + MySQL gateway**: JSON-backed GenesisDB with a SQL-like API in `src/api/log_api.py` and a MySQL protocol gateway in `src/api/mysql_server.py`.
+- **SQL API + MySQL gateway**: JSON-backed GenesisDB in `src/api/log_api.py` and a MySQL protocol gateway in `src/api/mysql_server.py`.
 - **Frontend UI**: Svelte + Vite visualization app in `ui/`.
 - **Rust library**: Categorical type system scaffolding in `src/lib.rs` and `src/category/`.
-- **Node CLI**: `genesis.js` wraps and launches Python services (only the `service` command is implemented right now).
+- **Node CLI**: `genesis.js` wraps and launches Python services.
 
 ---
 
-## Quick start
-
-### Docker Compose (recommended)
+## Quick start (Docker Compose)
 
 ```bash
 docker compose up --build
@@ -31,16 +29,20 @@ This starts:
 - SQL API on `http://localhost:8080` (matches the UI default)
 - UI on `http://localhost:5173`
 
-To also start the optional MySQL-compatible gateway:
+Optional MySQL-compatible gateway:
 
 ```bash
 docker compose --profile mysql up --build
 ```
 
-Environment variables used by the services:
+Environment variables:
 - `GENESIS_DB_PATH` (default: `./data/genesis_db.json`)
 - `GENESIS_MYSQL_HOST` (default: `0.0.0.0`)
 - `GENESIS_MYSQL_PORT` (default: `3306`)
+
+---
+
+## Local setup
 
 ### 1) Install Python dependencies
 
@@ -66,11 +68,11 @@ npm --prefix ui install
 npm --prefix ui run dev
 ```
 
-The UI expects the visualization backend at `http://localhost:8000`.
+The UI expects the backend at `http://localhost:8000`.
 
 ---
 
-## SQL API + MySQL gateway
+## SQL API + MySQL gateway (standalone)
 
 ### SQL API
 
