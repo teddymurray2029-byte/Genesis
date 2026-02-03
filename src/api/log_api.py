@@ -29,6 +29,26 @@ class QueryResponse(BaseModel):
     operation: str = "select"
 
 
+class SchemaColumn(BaseModel):
+    name: str
+    type: str
+
+
+class SchemaUpdate(BaseModel):
+    columns: Optional[list[SchemaColumn]] = Field(
+        default=None,
+        description="Optional list of schema columns (read-only for GenesisDB).",
+    )
+    constraints: Optional[list[str]] = Field(
+        default=None,
+        description="Optional list of constraints metadata strings.",
+    )
+    indexes: Optional[list[str]] = Field(
+        default=None,
+        description="Optional list of index metadata strings.",
+    )
+
+
 class ReloadRequest(BaseModel):
     voxel_cloud_path: Optional[str] = Field(
         default=None,
@@ -96,7 +116,8 @@ def create_app(
     db_path: str = DEFAULT_DB_PATH,
 ) -> FastAPI:
     db = _load_db(db_path, voxel_cloud_path)
-    log_store = _load_log_store(db_path)
+    schema_constraints: list[str] = []
+    schema_indexes: list[str] = []
 
     app = FastAPI(title="Genesis SQL API")
     app.add_middleware(
@@ -118,8 +139,32 @@ def create_app(
     @app.get("/schema")
     def schema() -> dict[str, Any]:
         return {
-            "entries": {"table": "entries", "columns": db.schema},
-            "logs": {"table": "logs", "columns": log_store.schema},
+            "table": "entries",
+            "columns": db.schema,
+            "constraints": schema_constraints,
+            "indexes": schema_indexes,
+        }
+
+    @app.post("/schema")
+    def update_schema(request: SchemaUpdate) -> dict[str, Any]:
+        nonlocal schema_constraints, schema_indexes
+        if request.columns is not None:
+            expected = [{"name": column["name"], "type": column["type"]} for column in db.schema]
+            provided = [{"name": column.name, "type": column.type} for column in request.columns]
+            if provided != expected:
+                raise HTTPException(
+                    status_code=400,
+                    detail="GenesisDB schema columns are fixed and cannot be modified.",
+                )
+        if request.constraints is not None:
+            schema_constraints = request.constraints
+        if request.indexes is not None:
+            schema_indexes = request.indexes
+        return {
+            "table": "entries",
+            "columns": db.schema,
+            "constraints": schema_constraints,
+            "indexes": schema_indexes,
         }
 
     @app.post("/query", response_model=QueryResponse)
