@@ -97,8 +97,25 @@ class ConnectionManager:
         for connection in to_remove:
             self._connections.discard(connection)
 
+    async def send(self, websocket: WebSocket, payload: dict[str, Any]) -> None:
+        try:
+            await websocket.send_json(payload)
+        except Exception:
+            self.disconnect(websocket)
+
 
 _CONNECTIONS = ConnectionManager()
+
+
+def _schedule_broadcast(event_type: str, payload: dict[str, Any]) -> None:
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    loop.create_task(_CONNECTIONS.broadcast({"type": "event", "event_type": event_type, "data": payload}))
+
+
+LOG_STORE = LogStore(LOG_STORE_PATH, LOG_LOCK_PATH, event_emitter=_schedule_broadcast)
 
 
 @app.get("/health")
