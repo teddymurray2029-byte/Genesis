@@ -7,6 +7,15 @@
   let selectedTable = '';
   let filterText = '';
   let selectedRowKey = null;
+  let queryText = 'SELECT * FROM entries LIMIT 100';
+  let queryStatus = null;
+  let queryError = null;
+  let isQueryRunning = false;
+  let isSaving = false;
+  let draftRow = {};
+  let columnTypes = {};
+  let lastQueryTable = 'entries';
+  let dataStats = null;
 
   const rowKey = (row, columns = []) => row?.id ?? row?.[columns?.[0]?.name];
   const matchesFilter = (row, filter) =>
@@ -31,6 +40,11 @@
     });
   };
 
+  const normalizeRowValue = (value) =>
+    value === null || value === undefined ? '' : String(value);
+
+  const isSameValue = (left, right) => normalizeRowValue(left) === normalizeRowValue(right);
+
   $: genesisDb = $dataStore?.genesisDb;
   $: database = genesisDb?.database;
   $: tables = genesisDb?.tables ?? {};
@@ -43,9 +57,226 @@
     rows.find((row) => rowKey(row, columns) === selectedRowKey) ||
     rows.find((row) => rowKey(row, columns) === genesisDb?.selectedRow?.id) ||
     rows[0];
+  $: if (selectedRow) {
+    draftRow = { ...selectedRow };
+  }
   $: if (genesisDb?.activeTable && !selectedTable) {
     selectedTable = genesisDb.activeTable;
   }
+
+  const buildSqlApiUrl = (path) => {
+    const { sqlApiBaseUrl } = get(effectiveConfigStore);
+    const base = sqlApiBaseUrl?.trim() || '';
+    if (!base) return path;
+    const sanitized = base.replace(/\/$/, '');
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    return `${sanitized}${normalizedPath}`;
+  };
+
+  const detectTableFromSql = (sql) => {
+    if (!sql) return 'entries';
+    return /\bfrom\s+logs\b/i.test(sql) || /\bupdate\s+logs\b/i.test(sql) || /\binto\s+logs\b/i.test(sql)
+      ? 'logs'
+      : 'entries';
+  };
+
+  const fetchSchema = async () => {
+    const response = await fetch(buildSqlApiUrl('/schema'));
+    if (!response.ok) {
+      throw new Error(`Failed to load schema: ${response.status}`);
+    }
+    const data = await response.json();
+    const types = {};
+    (data.columns || []).forEach((column) => {
+      types[column.name] = column.type;
+    });
+    columnTypes = types;
+    return data;
+  };
+
+  const execSql = async (sql) => {
+    const response = await fetch(buildSqlApiUrl('/query'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sql, params: [] })
+    });
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}));
+      throw new Error(detail?.detail || `Query failed with status ${response.status}`);
+    }
+    return response.json();
+  };
+
+  const fetchHealth = async () => {
+    const response = await fetch(buildSqlApiUrl('/health'));
+    if (!response.ok) {
+      return null;
+    }
+    return response.json();
+  };
+
+  const refreshGenesisDb = async (sql = queryText) => {
+    isQueryRunning = true;
+    queryError = null;
+    queryStatus = 'Loading data from GenesisDB...';
+    try {
+      await fetchSchema();
+      const health = await fetchHealth();
+      const result = await execSql(sql);
+      const tableName = detectTableFromSql(sql);
+      lastQueryTable = tableName;
+      dataStats = {
+        execution_time_ms: result.execution_time_ms,
+        row_count: result.row_count,
+        time_complexity: result.time_complexity
+      };
+      const resolvedColumns = result.columns?.length
+        ? result.columns
+        : Object.keys(result.rows?.[0] || {});
+      const columnDefs = resolvedColumns.map((name) => ({
+        name,
+        type: columnTypes[name] || 'TEXT'
+      }));
+      const genesisDb = {
+        database: {
+          name: 'genesis_db',
+          description: 'GenesisDB entries loaded from the SQL API.',
+          region: 'local',
+          updated_at: new Date().toISOString()
+        },
+        tables: {
+          [tableName]: {
+            columns: columnDefs,
+            rows: result.rows || []
+          }
+        },
+        activeTable: tableName,
+        selectedRow: result.rows?.[0] ? { table: tableName, id: rowKey(result.rows[0], columnDefs) } : null
+      };
+      if (health) {
+        genesisDb.database = {
+          ...genesisDb.database,
+          name: 'genesis_db',
+          description: `GenesisDB at ${health.db_path || 'unknown path'}`,
+          updated_at: new Date().toISOString()
+        };
+      }
+      websocketStore.data.set({
+        ...get(dataStore),
+        genesisDb
+      });
+      connectedStore.set(true);
+      lastSyncStore.set(Date.now());
+      connectionErrorStore.set(null);
+      selectedTable = tableName;
+      selectedRowKey = genesisDb.selectedRow?.id ?? null;
+      queryStatus = `Loaded ${result.row_count} rows from ${tableName}.`;
+    } catch (error) {
+      console.error('Failed to load GenesisDB data:', error);
+      queryError = error?.message || 'Failed to load GenesisDB data.';
+      connectionErrorStore.set(queryError);
+      queryStatus = null;
+    } finally {
+      isQueryRunning = false;
+    }
+  };
+
+  const runQuery = async () => {
+    await refreshGenesisDb(queryText);
+  };
+
+  const exportCsv = () => {
+    if (!columns.length || !filteredRows.length) return;
+    const headers = columns.map((column) => column.name);
+    const escapeCell = (value) => {
+      const text = value === null || value === undefined ? '' : String(value);
+      if (text.includes('"') || text.includes(',') || text.includes('\n')) {
+        return `"${text.replace(/"/g, '""')}"`;
+      }
+      return text;
+    };
+    const rowsCsv = filteredRows.map((row) =>
+      headers.map((header) => escapeCell(row?.[header])).join(',')
+    );
+    const csvContent = [headers.join(','), ...rowsCsv].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${selectedTable || 'entries'}-export.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const backupGenesisDb = async () => {
+    queryStatus = 'Creating backup...';
+    queryError = null;
+    try {
+      const result = await execSql('SELECT * FROM entries');
+      const payload = {
+        created_at: new Date().toISOString(),
+        rows: result.rows || []
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = 'genesisdb-backup.json';
+      anchor.click();
+      URL.revokeObjectURL(url);
+      queryStatus = 'Backup downloaded.';
+    } catch (error) {
+      console.error('Backup failed:', error);
+      queryError = error?.message || 'Backup failed.';
+      queryStatus = null;
+    }
+  };
+
+  const formatSqlValue = (value, type) => {
+    if (value === null || value === undefined || value === '') {
+      return 'NULL';
+    }
+    const normalizedType = (type || '').toUpperCase();
+    if (normalizedType.includes('INT') || normalizedType.includes('REAL')) {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? String(numeric) : 'NULL';
+    }
+    const escaped = String(value).replace(/'/g, "''");
+    return `'${escaped}'`;
+  };
+
+  const saveRow = async () => {
+    if (!selectedRow || !columns.length) return;
+    isSaving = true;
+    queryError = null;
+    queryStatus = null;
+    try {
+      const updates = columns
+        .filter((column) => !isSameValue(draftRow?.[column.name], selectedRow?.[column.name]))
+        .map((column) => `${column.name} = ${formatSqlValue(draftRow?.[column.name], column.type)}`);
+      if (!updates.length) {
+        queryStatus = 'No changes to save.';
+        return;
+      }
+      const identifier = selectedRow?.entry_index ?? selectedRow?.id;
+      if (identifier === undefined || identifier === null) {
+        throw new Error('Missing identifier for update.');
+      }
+      const whereClause =
+        selectedRow?.entry_index !== undefined && selectedRow?.entry_index !== null
+          ? `entry_index = ${formatSqlValue(selectedRow.entry_index, 'INTEGER')}`
+          : `id = ${formatSqlValue(selectedRow.id, 'TEXT')}`;
+      const updateSql = `UPDATE entries SET ${updates.join(', ')} WHERE ${whereClause}`;
+      await execSql(updateSql);
+      await refreshGenesisDb(queryText);
+      queryStatus = 'Changes saved.';
+    } catch (error) {
+      console.error('Save failed:', error);
+      queryError = error?.message || 'Failed to save changes.';
+    } finally {
+      isSaving = false;
+    }
+  };
 
   const handleSelectTable = (name) => {
     selectedTable = name;
@@ -63,436 +294,9 @@
     // Initialize WebSocket connection (disabled for now - using mock data)
     // websocketStore.connect('ws://localhost:8000/ws');
     
-    const { useMockData, websocketUrl } = get(effectiveConfigStore);
-
-    if (useMockData) {
-      console.log('📊 Setting mock data...');
-      const genesisDb = {
-        database: {
-          name: 'hospital_core',
-          description: 'Operational data for in-patient care, clinics, and diagnostics.',
-          region: 'us-east-1',
-          updated_at: new Date().toISOString()
-        },
-        tables: {
-          patients: {
-            columns: [
-              { name: 'id', type: 'string' },
-              { name: 'name', type: 'string' },
-              { name: 'dob', type: 'date' },
-              { name: 'gender', type: 'string' },
-              { name: 'mrn', type: 'string' },
-              { name: 'admit_date', type: 'datetime' },
-              { name: 'diagnosis', type: 'string' },
-              { name: 'attending_physician', type: 'string' },
-              { name: 'status', type: 'string' },
-              { name: 'room', type: 'string' }
-            ],
-            rows: [
-              {
-                id: 'PT-1001',
-                name: 'Maya Patel',
-                dob: '1983-04-18',
-                gender: 'F',
-                mrn: 'MRN-849201',
-                admit_date: '2024-03-12T09:14:00Z',
-                diagnosis: 'Community-acquired pneumonia',
-                attending_physician: 'Dr. Alicia Nguyen',
-                status: 'Stable',
-                room: '3B-214'
-              },
-              {
-                id: 'PT-1002',
-                name: 'Marcus Reed',
-                dob: '1975-11-02',
-                gender: 'M',
-                mrn: 'MRN-751044',
-                admit_date: '2024-03-13T16:42:00Z',
-                diagnosis: 'Type 2 diabetes with hyperglycemia',
-                attending_physician: 'Dr. Isaiah Brooks',
-                status: 'Monitoring',
-                room: '4C-302'
-              },
-              {
-                id: 'PT-1003',
-                name: 'Elena García',
-                dob: '1990-06-27',
-                gender: 'F',
-                mrn: 'MRN-663518',
-                admit_date: '2024-03-11T22:05:00Z',
-                diagnosis: 'Acute appendicitis (post-op)',
-                attending_physician: 'Dr. Priya Shah',
-                status: 'Recovering',
-                room: '2A-118'
-              },
-              {
-                id: 'PT-1004',
-                name: 'Thomas Osei',
-                dob: '1968-01-14',
-                gender: 'M',
-                mrn: 'MRN-538902',
-                admit_date: '2024-03-10T08:30:00Z',
-                diagnosis: 'CHF exacerbation',
-                attending_physician: 'Dr. Claire Howard',
-                status: 'Critical',
-                room: 'ICU-07'
-              },
-              {
-                id: 'PT-1005',
-                name: 'Hannah Kim',
-                dob: '2002-09-09',
-                gender: 'F',
-                mrn: 'MRN-905774',
-                admit_date: '2024-03-14T13:55:00Z',
-                diagnosis: 'Asthma flare',
-                attending_physician: 'Dr. Liam Chen',
-                status: 'Stable',
-                room: '3A-204'
-              },
-              {
-                id: 'PT-1006',
-                name: 'Robert Hayes',
-                dob: '1958-07-30',
-                gender: 'M',
-                mrn: 'MRN-447211',
-                admit_date: '2024-03-09T19:20:00Z',
-                diagnosis: 'Ischemic stroke (left MCA)',
-                attending_physician: 'Dr. Sofia Morales',
-                status: 'Rehab',
-                room: 'Neuro-12'
-              }
-            ]
-          },
-          appointments: {
-            columns: [
-              { name: 'id', type: 'string' },
-              { name: 'patient_id', type: 'string' },
-              { name: 'physician_id', type: 'string' },
-              { name: 'scheduled_time', type: 'datetime' },
-              { name: 'visit_type', type: 'string' },
-              { name: 'status', type: 'string' },
-              { name: 'location', type: 'string' },
-              { name: 'reason', type: 'string' }
-            ],
-            rows: [
-              {
-                id: 'APPT-3001',
-                patient_id: 'PT-1001',
-                physician_id: 'MD-201',
-                scheduled_time: '2024-03-15T14:30:00Z',
-                visit_type: 'Follow-up',
-                status: 'Scheduled',
-                location: 'Pulmonary Clinic',
-                reason: 'Chest X-ray review'
-              },
-              {
-                id: 'APPT-3002',
-                patient_id: 'PT-1002',
-                physician_id: 'MD-202',
-                scheduled_time: '2024-03-15T09:00:00Z',
-                visit_type: 'Consult',
-                status: 'Checked In',
-                location: 'Endocrinology',
-                reason: 'Glucose management plan'
-              },
-              {
-                id: 'APPT-3003',
-                patient_id: 'PT-1003',
-                physician_id: 'MD-203',
-                scheduled_time: '2024-03-16T11:15:00Z',
-                visit_type: 'Post-op',
-                status: 'Scheduled',
-                location: 'Surgery Suite 2',
-                reason: 'Wound inspection'
-              },
-              {
-                id: 'APPT-3004',
-                patient_id: 'PT-1004',
-                physician_id: 'MD-204',
-                scheduled_time: '2024-03-15T18:00:00Z',
-                visit_type: 'Rounds',
-                status: 'In Progress',
-                location: 'ICU',
-                reason: 'Cardiac status update'
-              },
-              {
-                id: 'APPT-3005',
-                patient_id: 'PT-1005',
-                physician_id: 'MD-205',
-                scheduled_time: '2024-03-17T08:30:00Z',
-                visit_type: 'Respiratory',
-                status: 'Scheduled',
-                location: 'Respiratory Lab',
-                reason: 'Spirometry assessment'
-              },
-              {
-                id: 'APPT-3006',
-                patient_id: 'PT-1006',
-                physician_id: 'MD-206',
-                scheduled_time: '2024-03-15T13:00:00Z',
-                visit_type: 'Rehab',
-                status: 'Scheduled',
-                location: 'Neuro Rehab Gym',
-                reason: 'PT/OT evaluation'
-              }
-            ]
-          },
-          physicians: {
-            columns: [
-              { name: 'id', type: 'string' },
-              { name: 'name', type: 'string' },
-              { name: 'specialty', type: 'string' },
-              { name: 'pager', type: 'string' },
-              { name: 'phone', type: 'string' },
-              { name: 'department', type: 'string' },
-              { name: 'status', type: 'string' },
-              { name: 'shift', type: 'string' }
-            ],
-            rows: [
-              {
-                id: 'MD-201',
-                name: 'Dr. Alicia Nguyen',
-                specialty: 'Pulmonology',
-                pager: 'PGR-8821',
-                phone: '(555) 410-2211',
-                department: 'Medicine',
-                status: 'On Service',
-                shift: 'Day'
-              },
-              {
-                id: 'MD-202',
-                name: 'Dr. Isaiah Brooks',
-                specialty: 'Endocrinology',
-                pager: 'PGR-7745',
-                phone: '(555) 410-3389',
-                department: 'Medicine',
-                status: 'On Service',
-                shift: 'Day'
-              },
-              {
-                id: 'MD-203',
-                name: 'Dr. Priya Shah',
-                specialty: 'General Surgery',
-                pager: 'PGR-6650',
-                phone: '(555) 410-5524',
-                department: 'Surgery',
-                status: 'On Call',
-                shift: 'Evening'
-              },
-              {
-                id: 'MD-204',
-                name: 'Dr. Claire Howard',
-                specialty: 'Cardiology',
-                pager: 'PGR-4483',
-                phone: '(555) 410-7872',
-                department: 'Cardiology',
-                status: 'On Service',
-                shift: 'Night'
-              },
-              {
-                id: 'MD-205',
-                name: 'Dr. Liam Chen',
-                specialty: 'Pulmonary Critical Care',
-                pager: 'PGR-9914',
-                phone: '(555) 410-6623',
-                department: 'Critical Care',
-                status: 'On Service',
-                shift: 'Day'
-              },
-              {
-                id: 'MD-206',
-                name: 'Dr. Sofia Morales',
-                specialty: 'Neurology',
-                pager: 'PGR-1207',
-                phone: '(555) 410-1147',
-                department: 'Neurosciences',
-                status: 'On Service',
-                shift: 'Evening'
-              }
-            ]
-          },
-          wards: {
-            columns: [
-              { name: 'id', type: 'string' },
-              { name: 'name', type: 'string' },
-              { name: 'floor', type: 'string' },
-              { name: 'charge_nurse', type: 'string' },
-              { name: 'capacity', type: 'number' },
-              { name: 'occupied_beds', type: 'number' },
-              { name: 'status', type: 'string' },
-              { name: 'phone', type: 'string' }
-            ],
-            rows: [
-              {
-                id: 'WARD-3B',
-                name: 'Medical-Surgical West',
-                floor: '3B',
-                charge_nurse: 'Jordan Ellis, RN',
-                capacity: 32,
-                occupied_beds: 28,
-                status: 'Busy',
-                phone: '(555) 410-3300'
-              },
-              {
-                id: 'WARD-4C',
-                name: 'Telemetry',
-                floor: '4C',
-                charge_nurse: 'Renee Alvarez, RN',
-                capacity: 24,
-                occupied_beds: 21,
-                status: 'At Capacity',
-                phone: '(555) 410-4400'
-              },
-              {
-                id: 'WARD-ICU',
-                name: 'Intensive Care Unit',
-                floor: 'ICU',
-                charge_nurse: 'Samir Patel, RN',
-                capacity: 18,
-                occupied_beds: 17,
-                status: 'Critical',
-                phone: '(555) 410-7700'
-              },
-              {
-                id: 'WARD-NEURO',
-                name: 'Neuroscience Stepdown',
-                floor: 'Neuro',
-                charge_nurse: 'Alexis Grant, RN',
-                capacity: 20,
-                occupied_beds: 16,
-                status: 'Available',
-                phone: '(555) 410-5500'
-              },
-              {
-                id: 'WARD-2A',
-                name: 'Post-Op Recovery',
-                floor: '2A',
-                charge_nurse: 'Morgan Li, RN',
-                capacity: 16,
-                occupied_beds: 12,
-                status: 'Open',
-                phone: '(555) 410-2200'
-              }
-            ]
-          },
-          lab_results: {
-            columns: [
-              { name: 'id', type: 'string' },
-              { name: 'patient_id', type: 'string' },
-              { name: 'test', type: 'string' },
-              { name: 'collected_at', type: 'datetime' },
-              { name: 'result', type: 'string' },
-              { name: 'unit', type: 'string' },
-              { name: 'reference_range', type: 'string' },
-              { name: 'status', type: 'string' },
-              { name: 'ordering_physician', type: 'string' }
-            ],
-            rows: [
-              {
-                id: 'LAB-7001',
-                patient_id: 'PT-1001',
-                test: 'CBC',
-                collected_at: '2024-03-13T06:30:00Z',
-                result: 'WBC 11.2',
-                unit: 'x10^3/uL',
-                reference_range: '4.0-10.5',
-                status: 'Flagged',
-                ordering_physician: 'Dr. Alicia Nguyen'
-              },
-              {
-                id: 'LAB-7002',
-                patient_id: 'PT-1002',
-                test: 'HbA1c',
-                collected_at: '2024-03-12T10:15:00Z',
-                result: '9.1',
-                unit: '%',
-                reference_range: '<7.0',
-                status: 'High',
-                ordering_physician: 'Dr. Isaiah Brooks'
-              },
-              {
-                id: 'LAB-7003',
-                patient_id: 'PT-1003',
-                test: 'CRP',
-                collected_at: '2024-03-12T18:45:00Z',
-                result: '6.8',
-                unit: 'mg/L',
-                reference_range: '<5.0',
-                status: 'High',
-                ordering_physician: 'Dr. Priya Shah'
-              },
-              {
-                id: 'LAB-7004',
-                patient_id: 'PT-1004',
-                test: 'BNP',
-                collected_at: '2024-03-14T05:05:00Z',
-                result: '1280',
-                unit: 'pg/mL',
-                reference_range: '<100',
-                status: 'Critical',
-                ordering_physician: 'Dr. Claire Howard'
-              },
-              {
-                id: 'LAB-7005',
-                patient_id: 'PT-1005',
-                test: 'Peak Flow',
-                collected_at: '2024-03-14T12:20:00Z',
-                result: '350',
-                unit: 'L/min',
-                reference_range: '400-600',
-                status: 'Low',
-                ordering_physician: 'Dr. Liam Chen'
-              },
-              {
-                id: 'LAB-7006',
-                patient_id: 'PT-1006',
-                test: 'Lipid Panel',
-                collected_at: '2024-03-11T09:50:00Z',
-                result: 'LDL 146',
-                unit: 'mg/dL',
-                reference_range: '<100',
-                status: 'High',
-                ordering_physician: 'Dr. Sofia Morales'
-              },
-              {
-                id: 'LAB-7007',
-                patient_id: 'PT-1001',
-                test: 'Blood Culture',
-                collected_at: '2024-03-13T07:15:00Z',
-                result: 'No growth at 48h',
-                unit: 'N/A',
-                reference_range: 'Negative',
-                status: 'Final',
-                ordering_physician: 'Dr. Alicia Nguyen'
-              }
-            ]
-          }
-        },
-        activeTable: 'patients',
-        selectedRow: {
-          table: 'patients',
-          id: 'PT-1001'
-        }
-      };
-      
-      const mockData = {
-        brainSpace: { clusters: [], memories: [] },
-        activation: { waveform: [], sparks: [], energy: 0.7, morphism: 'gamma' },
-        controls: { current_cycle: 'active', morphism_state: 'gamma', coherence: 0.85 },
-        events: [],
-        genesisDb
-      };
-      
-      websocketStore.data.set(mockData);
-      connectedStore.set(true);
-      lastSyncStore.set(Date.now());
-      connectionErrorStore.set(null);
-      console.log('✅ Mock data set, connected state: true');
-      selectedTable = genesisDb.activeTable;
-      selectedRowKey = genesisDb.selectedRow?.id ?? null;
-    } else {
-      websocketStore.connect(websocketUrl);
-    }
+    const { websocketUrl } = get(effectiveConfigStore);
+    websocketStore.connect(websocketUrl);
+    refreshGenesisDb();
   });
 </script>
 
@@ -507,7 +311,7 @@
     </div>
     <div class="crud-actions">
       <button class="btn btn-primary">New Record</button>
-      <button class="btn">Export</button>
+      <button class="btn" on:click={exportCsv}>Export CSV</button>
       <button class="btn">Settings</button>
     </div>
   </header>
@@ -545,12 +349,44 @@
       <div class="sidebar-section quick-actions">
         <h3>Quick actions</h3>
         <button class="btn btn-small">Import CSV</button>
-        <button class="btn btn-small">Run Query</button>
-        <button class="btn btn-small">Backup</button>
+        <button class="btn btn-small" on:click={runQuery}>Run Query</button>
+        <button class="btn btn-small" on:click={backupGenesisDb}>Backup</button>
       </div>
     </aside>
 
     <section class="crud-main">
+      <div class="query-panel">
+        <div class="query-header">
+          <div>
+            <div class="query-title">Query runner</div>
+            <div class="query-subtitle">Execute SQL against GenesisDB entries and logs.</div>
+          </div>
+          <button class="btn btn-primary" on:click={runQuery} disabled={isQueryRunning}>
+            {isQueryRunning ? 'Running...' : 'Run Query'}
+          </button>
+        </div>
+        <textarea
+          class="query-input"
+          rows="3"
+          placeholder="SELECT * FROM entries LIMIT 100"
+          bind:value={queryText}
+        ></textarea>
+        {#if queryStatus || queryError}
+          <div class={`query-status ${queryError ? 'error' : ''}`}>
+            {queryError || queryStatus}
+          </div>
+        {/if}
+        {#if dataStats}
+          <div class="query-meta">
+            <span>{dataStats.row_count} rows</span>
+            <span>{dataStats.execution_time_ms?.toFixed?.(1) ?? dataStats.execution_time_ms} ms</span>
+            {#if dataStats.time_complexity}
+              <span>{dataStats.time_complexity}</span>
+            {/if}
+          </div>
+        {/if}
+      </div>
+
       <div class="table-header">
         <div>
           <div class="table-title">{selectedTable || genesisDb?.activeTable || 'Table'}</div>
@@ -595,12 +431,18 @@
           {#each columns as column}
             <label>
               <span>{column.name.toUpperCase()}</span>
-              <input type="text" readonly value={selectedRow?.[column.name] ?? ''} />
+              <input
+                type="text"
+                bind:value={draftRow[column.name]}
+                disabled={column.name === 'entry_index'}
+              />
             </label>
           {/each}
         </div>
         <div class="detail-actions">
-          <button class="btn btn-primary">Save Changes</button>
+          <button class="btn btn-primary" on:click={saveRow} disabled={isSaving}>
+            {isSaving ? 'Saving...' : 'Save Changes'}
+          </button>
           <button class="btn">Delete</button>
         </div>
       </div>
@@ -618,6 +460,12 @@
           <span>Row visibility</span>
           <strong>{filteredRows.length} of {rows.length} rows</strong>
         </div>
+        {#if lastQueryTable}
+          <div class="info-item">
+            <span>Query table</span>
+            <strong>{lastQueryTable}</strong>
+          </div>
+        {/if}
       </div>
     </aside>
   </section>
@@ -787,6 +635,64 @@
     display: flex;
     flex-direction: column;
     gap: 1rem;
+  }
+
+  .query-panel {
+    background: #f8fafc;
+    padding: 1rem 1.5rem;
+    border-radius: 1rem;
+    box-shadow: 0 10px 20px rgba(15, 23, 42, 0.12);
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .query-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .query-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #0f172a;
+  }
+
+  .query-subtitle {
+    font-size: 0.8rem;
+    color: #64748b;
+  }
+
+  .query-input {
+    border: 1px solid #cbd5f5;
+    border-radius: 0.75rem;
+    padding: 0.75rem;
+    font-family: 'JetBrains Mono', 'SFMono-Regular', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.85rem;
+    color: #0f172a;
+    background: #ffffff;
+  }
+
+  .query-status {
+    font-size: 0.85rem;
+    color: #1f2937;
+    background: rgba(15, 23, 42, 0.08);
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+  }
+
+  .query-status.error {
+    color: #b91c1c;
+    background: rgba(185, 28, 28, 0.1);
+  }
+
+  .query-meta {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.8rem;
+    color: #475569;
   }
 
   .table-header {

@@ -5,12 +5,12 @@ const STORAGE_KEY = 'genesis-ui-settings';
 
 const defaultSettings = {
   backendBaseUrl: env.VITE_GENESISDB_HTTP_URL ?? 'http://localhost:8080',
-  sqlApiBaseUrl: env.VITE_GENESISDB_SQL_API_URL ?? 'http://localhost:8080/sql'
+  sqlApiBaseUrl: env.VITE_GENESISDB_SQL_API_URL ?? 'http://localhost:8080'
 };
 
 const useMockData = env.VITE_GENESISDB_USE_MOCK_DATA
   ? env.VITE_GENESISDB_USE_MOCK_DATA === 'true'
-  : true;
+  : false;
 const envWebsocketUrl = env.VITE_GENESISDB_WS_URL;
 const envLogsWebsocketUrl = env.VITE_GENESISDB_LOGS_WS_URL;
 
