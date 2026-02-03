@@ -296,6 +296,10 @@
     selectedRowKey = rowKey(row, columns);
   };
 
+  const clearFilter = () => {
+    filterText = '';
+  };
+
   onMount(() => {
     console.log('🎨 App.svelte mounted');
     document.title = 'Genesis Data Console';
@@ -415,27 +419,40 @@
       </div>
 
       <div class="table-card">
-        <table>
-          <thead>
-            <tr>
-              {#each columns as column}
-                <th>{column.name}</th>
-              {/each}
-            </tr>
-          </thead>
-          <tbody>
-            {#each filteredRows as row}
-              <tr
-                class:selected={rowKey(row, columns) === rowKey(selectedRow, columns)}
-                on:click={() => handleSelectRow(row)}
-              >
+        {#if rows.length === 0}
+          <div class="table-empty">
+            <h4>No rows loaded</h4>
+            <p>Run a query or select a table to load data.</p>
+          </div>
+        {:else if filteredRows.length === 0}
+          <div class="table-empty">
+            <h4>No matching rows</h4>
+            <p>Try adjusting your filter to see more results.</p>
+            <button class="btn btn-small" on:click={clearFilter}>Clear filter</button>
+          </div>
+        {:else}
+          <table>
+            <thead>
+              <tr>
                 {#each columns as column}
-                  <td>{row?.[column.name] ?? '—'}</td>
+                  <th>{column.name}</th>
                 {/each}
               </tr>
-            {/each}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {#each filteredRows as row}
+                <tr
+                  class:selected={rowKey(row, columns) === rowKey(selectedRow, columns)}
+                  on:click={() => handleSelectRow(row)}
+                >
+                  {#each columns as column}
+                    <td>{row?.[column.name] ?? '—'}</td>
+                  {/each}
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {/if}
       </div>
     </section>
 
@@ -770,6 +787,27 @@
     padding: 0.5rem;
     box-shadow: 0 20px 40px rgba(15, 23, 42, 0.15);
     overflow: hidden;
+  }
+
+  .table-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 2.5rem 1.5rem;
+    text-align: center;
+    color: #475569;
+  }
+
+  .table-empty h4 {
+    margin: 0;
+    font-size: 1rem;
+    color: #0f172a;
+  }
+
+  .table-empty p {
+    margin: 0;
+    font-size: 0.85rem;
   }
 
   table {
