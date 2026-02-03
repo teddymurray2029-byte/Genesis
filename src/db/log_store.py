@@ -10,8 +10,11 @@ from typing import Any, Iterable, Optional
 
 LOG_SCHEMA = [
     {"name": "id", "type": "INTEGER"},
+    {"name": "timestamp", "type": "TEXT"},
+    {"name": "type", "type": "TEXT"},
     {"name": "message", "type": "TEXT"},
-    {"name": "level", "type": "TEXT"},
+    {"name": "payload", "type": "TEXT"},
+    {"name": "tags", "type": "TEXT"},
 ]
 
 SCHEMA_COLUMNS = [column["name"] for column in LOG_SCHEMA]
@@ -72,7 +75,7 @@ class LogStore:
                 payload = json.load(handle)
             if not isinstance(payload, list):
                 raise ValueError("Log store file must contain a JSON list of rows")
-            self._rows = payload
+            self._rows = [self._normalize_row(row) for row in payload]
         self._rebuild_indexes()
 
     def _persist(self) -> None:
@@ -288,6 +291,11 @@ class LogStore:
             return True
         if value.lower() == "false":
             return False
+        if (value.startswith("{") and value.endswith("}")) or (value.startswith("[") and value.endswith("]")):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                return value
         if (value.startswith("'") and value.endswith("'")) or (
             value.startswith('"') and value.endswith('"')
         ):
@@ -344,3 +352,15 @@ class LogStore:
         if entry_id is not None and entry_id != original_id:
             if entry_id in self._index_by_id:
                 raise ValueError(f"id {entry_id} already exists")
+
+    def _normalize_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(row, dict):
+            raise ValueError("Log store rows must be JSON objects")
+        normalized = {column: row.get(column) for column in SCHEMA_COLUMNS}
+        if normalized["type"] is None and "level" in row:
+            normalized["type"] = row.get("level")
+        if isinstance(normalized["id"], str) and normalized["id"].isdigit():
+            normalized["id"] = int(normalized["id"])
+        if normalized["tags"] is None:
+            normalized["tags"] = []
+        return normalized

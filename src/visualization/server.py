@@ -284,17 +284,17 @@ def list_logs(
 @app.post("/logs")
 @app.post("/api/logs")
 async def create_log(payload: LogCreate) -> LogEntry:
-    global _NEXT_LOG_ID
-    entry = LogEntry(id=_NEXT_LOG_ID, message=payload.message, level=payload.level)
-    _NEXT_LOG_ID += 1
-    _LOGS.append(entry)
+    entry = LOG_STORE.create(payload)
     await _CONNECTIONS.broadcast(
         {
             "type": "event",
             "event": {
                 "type": "log",
                 "message": entry.message,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": entry.timestamp.isoformat(),
+                "log_type": entry.type,
+                "payload": entry.payload,
+                "tags": entry.tags,
             },
         }
     )
