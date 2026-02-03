@@ -6,7 +6,11 @@ import argparse
 import asyncio
 import os
 from datetime import datetime, timezone
-from typing import Any
+import json
+import os
+from pathlib import Path
+from threading import Lock
+from typing import Any, Iterable
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -121,7 +125,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 message = await asyncio.wait_for(websocket.receive_text(), timeout=15)
                 await websocket.send_json({"type": "ack", "message": message})
             except asyncio.TimeoutError:
-                await WS_MANAGER.heartbeat()
+                await websocket.send_json({"type": "ping"})
     except WebSocketDisconnect:
         _CONNECTIONS.disconnect(websocket)
         return
@@ -157,6 +161,7 @@ async def create_log(payload: LogCreate) -> LogEntry:
             "type": "event",
             "event": {
                 "type": "log",
+                "log_type": entry.type,
                 "message": entry.message,
                 "timestamp": entry.timestamp.isoformat(),
                 "log_type": entry.type,
