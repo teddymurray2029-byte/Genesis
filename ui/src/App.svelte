@@ -310,9 +310,11 @@
       </div>
     </div>
     <div class="crud-actions">
-      <button class="btn btn-primary">New Record</button>
+      <button class="btn btn-primary btn-disabled" disabled aria-disabled="true" title="Coming soon">
+        New Record
+      </button>
       <button class="btn" on:click={exportCsv}>Export CSV</button>
-      <button class="btn">Settings</button>
+      <button class="btn btn-disabled" disabled aria-disabled="true" title="Coming soon">Settings</button>
     </div>
   </header>
 
@@ -348,7 +350,9 @@
 
       <div class="sidebar-section quick-actions">
         <h3>Quick actions</h3>
-        <button class="btn btn-small">Import CSV</button>
+        <button class="btn btn-small btn-disabled" disabled aria-disabled="true" title="Coming soon">
+          Import CSV
+        </button>
         <button class="btn btn-small" on:click={runQuery}>Run Query</button>
         <button class="btn btn-small" on:click={backupGenesisDb}>Backup</button>
       </div>
@@ -394,8 +398,10 @@
         </div>
         <div class="table-actions">
           <input class="filter-input" type="text" placeholder="Filter rows" bind:value={filterText} />
-          <button class="btn">Filter</button>
-          <button class="btn">Columns</button>
+          <button class="btn btn-disabled" disabled aria-disabled="true" title="Coming soon">Filter</button>
+          <button class="btn btn-disabled" disabled aria-disabled="true" title="Coming soon">
+            Columns
+          </button>
         </div>
       </div>
 
@@ -443,7 +449,9 @@
           <button class="btn btn-primary" on:click={saveRow} disabled={isSaving}>
             {isSaving ? 'Saving...' : 'Save Changes'}
           </button>
-          <button class="btn">Delete</button>
+          <button class="btn btn-disabled" disabled aria-disabled="true" title="Coming soon">
+            Delete
+          </button>
         </div>
       </div>
 
@@ -542,6 +550,19 @@
     background: #facc15;
     border-color: #facc15;
     color: #1f2937;
+  }
+
+  .btn-disabled {
+    opacity: 0.55;
+  }
+
+  .btn:disabled,
+  .btn[aria-disabled='true'] {
+    cursor: not-allowed;
+    background: rgba(248, 250, 252, 0.6);
+    border-color: #d8e1f0;
+    color: #94a3b8;
+    box-shadow: none;
   }
 
   .btn-small {
