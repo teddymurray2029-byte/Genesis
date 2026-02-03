@@ -6,3 +6,4 @@ fastapi
 uvicorn
 matplotlib
 httpx
+strawberry-graphql[fastapi]

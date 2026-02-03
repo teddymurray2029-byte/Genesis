@@ -12,6 +12,7 @@ const useMockData = env.VITE_GENESISDB_USE_MOCK_DATA
   ? env.VITE_GENESISDB_USE_MOCK_DATA === 'true'
   : true;
 const envWebsocketUrl = env.VITE_GENESISDB_WS_URL;
+const envLogsWebsocketUrl = env.VITE_GENESISDB_LOGS_WS_URL;
 
 const loadStoredSettings = () => {
   if (typeof localStorage === 'undefined') {
@@ -49,6 +50,21 @@ const deriveWebsocketUrl = (backendBaseUrl) => {
   }
 };
 
+const deriveLogsWebsocketUrl = (backendBaseUrl) => {
+  try {
+    const url = new URL(backendBaseUrl);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    url.pathname = url.pathname.replace(/\/$/, '');
+    url.pathname = `${url.pathname}/ws/logs`;
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch (error) {
+    console.warn('Failed to derive Logs WebSocket URL:', error);
+    return envLogsWebsocketUrl ?? 'ws://localhost:8000/ws/logs';
+  }
+};
+
 export const settingsStore = writable({
   ...defaultSettings,
   ...loadStoredSettings()
@@ -64,11 +80,13 @@ export const effectiveConfigStore = derived(settingsStore, ($settings) => {
   const backendBaseUrl = $settings.backendBaseUrl?.trim() || defaultSettings.backendBaseUrl;
   const sqlApiBaseUrl = $settings.sqlApiBaseUrl?.trim() || defaultSettings.sqlApiBaseUrl;
   const websocketUrl = envWebsocketUrl ?? deriveWebsocketUrl(backendBaseUrl);
+  const logsWebsocketUrl = envLogsWebsocketUrl ?? deriveLogsWebsocketUrl(backendBaseUrl);
 
   return {
     backendBaseUrl,
     sqlApiBaseUrl,
     websocketUrl,
+    logsWebsocketUrl,
     useMockData
   };
 });

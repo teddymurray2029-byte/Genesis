@@ -1,6 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { clustersStore, memoriesStore, activationStore } from '../stores/websocket.js';
+  import { clustersStore, memoriesStore, activationStore, timelinePointsStore } from '../stores/websocket.js';
   import { filterState } from '../stores/filters.js';
   import * as THREE from 'three';
   
@@ -24,6 +24,16 @@
   $: clusters = $clustersStore;
   $: memories = $memoriesStore;
   $: activation = $activationStore;
+  $: timelinePoints = $timelinePointsStore;
+
+  function getTimelineBoost() {
+    if (!timelinePoints || timelinePoints.length === 0) {
+      return 0;
+    }
+    const latest = timelinePoints[timelinePoints.length - 1];
+    const value = latest?.value ?? latest?.intensity ?? latest?.amplitude ?? 0;
+    return Math.min(2, Math.max(0, value));
+  }
   
   function updateParticles() {
     if (!scene) return;
@@ -705,6 +715,7 @@
     // Animate wavetable oscillation
     if (wavetableLines && wavetableLines.material.uniforms) {
       wavetableLines.material.uniforms.time.value = time;
+      wavetableLines.material.uniforms.amplitudeScale.value = 2.0 + getTimelineBoost();
     }
     
     if (controls) {
