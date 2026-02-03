@@ -394,7 +394,9 @@
         </div>
         <div class="table-actions">
           <input class="filter-input" type="text" placeholder="Filter rows" bind:value={filterText} />
-          <button class="btn">Filter</button>
+          <button class="btn" on:click={() => (filterText = '')} disabled={!filterText}>
+            Clear
+          </button>
           <button class="btn">Columns</button>
         </div>
       </div>
