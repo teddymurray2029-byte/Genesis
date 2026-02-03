@@ -1,5 +1,6 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
+  import { logEventsStore, websocketStore } from '../stores/websocket.js';
 
   const pageSizeOptions = [5, 10, 20];
   const levelOptions = ['info', 'warning', 'error', 'debug'];
@@ -25,6 +26,8 @@
 
   let showDeleteConfirm = false;
   let pendingDelete = null;
+  let logEventUnsubscribe = null;
+  let lastLogEventIndex = 0;
 
   function normalizeResponse(payload) {
     if (Array.isArray(payload)) {
@@ -84,6 +87,24 @@
 
   onMount(() => {
     fetchLogs();
+    websocketStore.connectLogs();
+    logEventUnsubscribe = logEventsStore.subscribe((events) => {
+      if (!Array.isArray(events)) {
+        return;
+      }
+      if (events.length <= lastLogEventIndex) {
+        return;
+      }
+      const newEvents = events.slice(lastLogEventIndex);
+      lastLogEventIndex = events.length;
+      newEvents.forEach(mergeLogEvent);
+    });
+  });
+
+  onDestroy(() => {
+    if (logEventUnsubscribe) {
+      logEventUnsubscribe();
+    }
   });
 
   function openDrawer(log) {
@@ -268,6 +289,54 @@
     pageSize = Number(event.target.value);
     page = 1;
     fetchLogs();
+  }
+
+  function getLogKey(log) {
+    return String(log?.id ?? log?.log_id ?? log?.logId ?? log?.timestamp ?? '');
+  }
+
+  function mergeLogEvent(event) {
+    if (!event) {
+      return;
+    }
+
+    if (event.type === 'logs_update') {
+      if (Array.isArray(event.logs)) {
+        logs = event.logs;
+        total = event.total ?? event.logs.length;
+      }
+      return;
+    }
+
+    const logEntry = event.log;
+    if (!logEntry) {
+      return;
+    }
+
+    const logKey = getLogKey(logEntry);
+    if (!logKey) {
+      return;
+    }
+
+    const existingIndex = logs.findIndex((log) => getLogKey(log) === logKey);
+
+    if (event.type === 'log_deleted' || event.type === 'log_removed') {
+      if (existingIndex >= 0) {
+        logs = logs.filter((_, index) => index !== existingIndex);
+        total = Math.max(0, total - 1);
+      }
+      return;
+    }
+
+    if (existingIndex >= 0) {
+      logs = logs.map((log, index) => (index === existingIndex ? { ...log, ...logEntry } : log));
+      return;
+    }
+
+    if (page === 1) {
+      logs = [logEntry, ...logs];
+    }
+    total += 1;
   }
 </script>
 
