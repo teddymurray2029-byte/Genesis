@@ -4,15 +4,19 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from bisect import bisect_left, insort
+from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Any
+import json
+import os
+from pathlib import Path
+from threading import Lock
+from typing import Any, Iterable
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import uvicorn
-
-from src.db.log_store import LogStore
 
 app = FastAPI(title="Genesis Visualization Service")
 app.add_middleware(
@@ -265,7 +269,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 message = await asyncio.wait_for(websocket.receive_text(), timeout=15)
                 await websocket.send_json({"type": "ack", "message": message})
             except asyncio.TimeoutError:
-                await WS_MANAGER.heartbeat()
+                await websocket.send_json({"type": "ping"})
     except WebSocketDisconnect:
         _CONNECTIONS.disconnect(websocket)
         return
@@ -284,17 +288,15 @@ def list_logs(
 @app.post("/logs")
 @app.post("/api/logs")
 async def create_log(payload: LogCreate) -> LogEntry:
-    global _NEXT_LOG_ID
-    entry = LogEntry(id=_NEXT_LOG_ID, message=payload.message, level=payload.level)
-    _NEXT_LOG_ID += 1
-    _LOGS.append(entry)
+    entry = LOG_STORE.create(payload)
     await _CONNECTIONS.broadcast(
         {
             "type": "event",
             "event": {
                 "type": "log",
+                "log_type": entry.type,
                 "message": entry.message,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": entry.timestamp.isoformat(),
             },
         }
     )
