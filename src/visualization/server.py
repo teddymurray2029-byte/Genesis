@@ -12,6 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import uvicorn
 
+from src.db.log_store import LogStore
+
 app = FastAPI(title="Genesis Visualization Service")
 app.add_middleware(
     CORSMiddleware,
@@ -263,7 +265,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 message = await asyncio.wait_for(websocket.receive_text(), timeout=15)
                 await websocket.send_json({"type": "ack", "message": message})
             except asyncio.TimeoutError:
-                await websocket.send_json({"type": "heartbeat"})
+                await WS_MANAGER.heartbeat()
     except WebSocketDisconnect:
         _CONNECTIONS.disconnect(websocket)
         return
