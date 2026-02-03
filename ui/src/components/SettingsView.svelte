@@ -37,7 +37,7 @@
       <input
         type="url"
         value={$settingsStore.sqlApiBaseUrl}
-        placeholder="http://localhost:8080/sql"
+        placeholder="http://localhost:8080"
         on:input={handleSqlApiChange}
       />
     </label>
