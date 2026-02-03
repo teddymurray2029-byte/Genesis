@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -36,6 +37,31 @@ _LOGS: list[LogEntry] = []
 _NEXT_LOG_ID = 1
 
 
+class ConnectionManager:
+    def __init__(self) -> None:
+        self._connections: set[WebSocket] = set()
+
+    async def connect(self, websocket: WebSocket) -> None:
+        await websocket.accept()
+        self._connections.add(websocket)
+
+    def disconnect(self, websocket: WebSocket) -> None:
+        self._connections.discard(websocket)
+
+    async def broadcast(self, payload: dict[str, Any]) -> None:
+        to_remove: list[WebSocket] = []
+        for connection in self._connections:
+            try:
+                await connection.send_json(payload)
+            except Exception:
+                to_remove.append(connection)
+        for connection in to_remove:
+            self._connections.discard(connection)
+
+
+_CONNECTIONS = ConnectionManager()
+
+
 @app.get("/health")
 @app.get("/api/health")
 def health() -> dict[str, str]:
@@ -52,7 +78,7 @@ def build_initial_state() -> dict[str, Any]:
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
-    await websocket.accept()
+    await _CONNECTIONS.connect(websocket)
     await websocket.send_json(build_initial_state())
     try:
         while True:
@@ -62,6 +88,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             except asyncio.TimeoutError:
                 await websocket.send_json({"type": "heartbeat"})
     except WebSocketDisconnect:
+        _CONNECTIONS.disconnect(websocket)
         return
 
 
@@ -73,11 +100,21 @@ def list_logs() -> list[LogEntry]:
 
 @app.post("/logs")
 @app.post("/api/logs")
-def create_log(payload: LogCreate) -> LogEntry:
+async def create_log(payload: LogCreate) -> LogEntry:
     global _NEXT_LOG_ID
     entry = LogEntry(id=_NEXT_LOG_ID, message=payload.message, level=payload.level)
     _NEXT_LOG_ID += 1
     _LOGS.append(entry)
+    await _CONNECTIONS.broadcast(
+        {
+            "type": "event",
+            "event": {
+                "type": "log",
+                "message": entry.message,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        }
+    )
     return entry
 
 

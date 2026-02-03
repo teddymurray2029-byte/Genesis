@@ -13,9 +13,18 @@ class WebSocketStore {
       brainSpace: { clusters: [], memories: [] },
       activation: { waveform: [], sparks: [] },
       controls: {},
-      events: []
+      events: [],
+      genesisDb: {
+        database: null,
+        tables: {},
+        activeTable: null,
+        selectedRow: null
+      }
     });
     this.connected = writable(false);
+    this.lastSync = writable(null);
+    this.connectionError = writable(null);
+    this.lastUrl = null;
     
     WebSocketStore.instance = this;
   }
@@ -24,11 +33,14 @@ class WebSocketStore {
     console.log('🔌 WebSocketStore.connect() called with URL:', url);
     try {
       console.log('📡 Creating WebSocket connection...');
+      this.lastUrl = url;
+      this.connectionError.set(null);
       this.ws = new WebSocket(url);
       
       this.ws.onopen = () => {
         console.log('✅ WebSocket connected to:', url);
         this.connected.set(true);
+        this.connectionError.set(null);
       };
       
       this.ws.onmessage = (event) => {
@@ -44,6 +56,7 @@ class WebSocketStore {
       this.ws.onerror = (error) => {
         console.error('❌ WebSocket error:', error);
         this.connected.set(false);
+        this.connectionError.set('Connection error. Please retry.');
       };
       
       this.ws.onclose = (event) => {
@@ -53,17 +66,24 @@ class WebSocketStore {
           wasClean: event.wasClean
         });
         this.connected.set(false);
+        this.connectionError.set(
+          event.reason
+            ? `Disconnected: ${event.reason}`
+            : 'Disconnected from server. Please retry.'
+        );
         // Reconnect after 3 seconds
         console.log('⏳ Will reconnect in 3 seconds...');
         setTimeout(() => this.connect(url), 3000);
       };
     } catch (error) {
       console.error('❌ Failed to connect WebSocket:', error);
+      this.connectionError.set('Failed to connect. Please retry.');
     }
   }
   
   handleMessage(message) {
     console.log('🔄 handleMessage:', message.type);
+    this.lastSync.set(Date.now());
     this.data.update(current => {
       let updated;
       switch (message.type) {
@@ -139,6 +159,14 @@ class WebSocketStore {
       this.ws = null;
     }
   }
+
+  retry() {
+    if (this.lastUrl) {
+      this.connect(this.lastUrl);
+    } else {
+      console.warn('⚠️  No WebSocket URL available to retry');
+    }
+  }
 }
 
 // Singleton instance
@@ -157,9 +185,10 @@ export const websocketStore = getWebSocketStore();
 // Export the stores directly for easier use in components
 export const dataStore = websocketStore.data;
 export const connectedStore = websocketStore.connected;
+export const lastSyncStore = websocketStore.lastSync;
+export const connectionErrorStore = websocketStore.connectionError;
 
 // Derived stores for convenience
 export const clustersStore = derived(dataStore, $data => $data?.brainSpace?.clusters || []);
 export const memoriesStore = derived(dataStore, $data => $data?.brainSpace?.memories || []);
 export const activationStore = derived(dataStore, $data => $data?.activation || { waveform: [], sparks: [], morphism: 'gamma' });
-
