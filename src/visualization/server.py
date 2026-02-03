@@ -29,6 +29,7 @@ app.add_middleware(
 
 
 DEFAULT_DB_PATH = os.getenv("GENESIS_DB_PATH", "data/genesis_db.json")
+LOG_WS_INITIAL_LIMIT = 100
 
 
 class LogEntry(BaseModel):
@@ -113,6 +114,7 @@ class ConnectionManager:
 
 
 _CONNECTIONS = ConnectionManager()
+_LOG_CONNECTIONS = ConnectionManager()
 
 
 def _schedule_broadcast(event_type: str, payload: dict[str, Any]) -> None:
@@ -121,6 +123,38 @@ def _schedule_broadcast(event_type: str, payload: dict[str, Any]) -> None:
     except RuntimeError:
         return
     loop.create_task(_CONNECTIONS.broadcast({"type": "event", "event_type": event_type, "data": payload}))
+
+
+def _log_event_payload(entry: LogEntry, action: str) -> dict[str, Any]:
+    return {
+        "type": "log",
+        "action": action,
+        "id": entry.id,
+        "timestamp": entry.timestamp,
+        "type": entry.type,
+        "message": entry.message,
+        "payload": entry.payload,
+        "tags": entry.tags,
+    }
+
+
+async def _broadcast_log_event(entry: LogEntry, action: str) -> None:
+    payload = {"type": "event", "event": _log_event_payload(entry, action)}
+    await _CONNECTIONS.broadcast(payload)
+    await _LOG_CONNECTIONS.broadcast(payload)
+
+
+def _schedule_log_broadcast(entry: LogEntry, action: str) -> None:
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    loop.create_task(_broadcast_log_event(entry, action))
+
+
+def _load_recent_logs(limit: int = LOG_WS_INITIAL_LIMIT) -> list[LogEntry]:
+    result = _run_log_query(f"SELECT * FROM logs ORDER BY id DESC LIMIT {limit}")
+    return [LogEntry(**row) for row in result.rows]
 
 
 @app.get("/health")
@@ -150,6 +184,28 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 await websocket.send_json({"type": "ping"})
     except WebSocketDisconnect:
         _CONNECTIONS.disconnect(websocket)
+        return
+
+
+@app.websocket("/ws/logs")
+async def websocket_logs(websocket: WebSocket) -> None:
+    await _LOG_CONNECTIONS.connect(websocket)
+    initial_logs = _load_recent_logs()
+    await websocket.send_json(
+        {
+            "type": "logs_initial",
+            "logs": [entry.model_dump() for entry in initial_logs],
+        }
+    )
+    try:
+        while True:
+            try:
+                message = await asyncio.wait_for(websocket.receive_text(), timeout=15)
+                await websocket.send_json({"type": "ack", "message": message})
+            except asyncio.TimeoutError:
+                await websocket.send_json({"type": "ping"})
+    except WebSocketDisconnect:
+        _LOG_CONNECTIONS.disconnect(websocket)
         return
 
 
@@ -183,19 +239,7 @@ async def create_log(payload: LogCreate) -> LogEntry:
     if not result.rows:
         raise HTTPException(status_code=500, detail="Failed to load created log entry")
     entry = LogEntry(**result.rows[0])
-    await _CONNECTIONS.broadcast(
-        {
-            "type": "event",
-            "event": {
-                "type": "log",
-                "log_type": entry.type,
-                "message": entry.message,
-                "timestamp": entry.timestamp,
-                "payload": entry.payload,
-                "tags": entry.tags,
-            },
-        }
-    )
+    await _broadcast_log_event(entry, "created")
     return entry
 
 
@@ -223,15 +267,20 @@ def update_log(log_id: int, payload: LogUpdate) -> LogEntry:
     updated = _fetch_log(log_id)
     if updated is None:
         raise HTTPException(status_code=404, detail=f"Log {log_id} not found")
+    _schedule_log_broadcast(updated, "updated")
     return updated
 
 
 @app.delete("/logs/{log_id}")
 @app.delete("/api/logs/{log_id}")
 def delete_log(log_id: int) -> dict[str, str]:
+    existing = _fetch_log(log_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail=f"Log {log_id} not found")
     result = _run_log_query(f"DELETE FROM logs WHERE id = {log_id}")
     if result.affected_rows == 0:
         raise HTTPException(status_code=404, detail=f"Log {log_id} not found")
+    _schedule_log_broadcast(existing, "deleted")
     return {"status": "deleted"}
 
 
