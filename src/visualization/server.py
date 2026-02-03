@@ -158,7 +158,10 @@ async def create_log(payload: LogCreate) -> LogEntry:
             "event": {
                 "type": "log",
                 "message": entry.message,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": entry.timestamp.isoformat(),
+                "log_type": entry.type,
+                "payload": entry.payload,
+                "tags": entry.tags,
             },
         }
     )
