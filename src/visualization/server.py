@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from bisect import bisect_left, insort
-from contextlib import contextmanager
+import os
 from datetime import datetime, timezone
 import json
 import os
@@ -15,8 +14,10 @@ from typing import Any, Iterable
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 import uvicorn
+
+from src.db.log_store import LogStore, QueryResult, resolve_log_db_path
 
 app = FastAPI(title="Genesis Visualization Service")
 app.add_middleware(
@@ -28,196 +29,51 @@ app.add_middleware(
 )
 
 
-LOG_STORE_PATH = Path("data/logs.json")
-LOG_LOCK_PATH = Path("data/logs.lock")
+DEFAULT_DB_PATH = os.getenv("GENESIS_DB_PATH", "data/genesis_db.json")
 
 
 class LogEntry(BaseModel):
     id: int
-    timestamp: datetime
-    type: str
-    message: str
-    payload: Any | None = None
-    tags: list[str] = Field(default_factory=list)
+    message: str | None = None
+    level: str | None = None
 
 
 class LogCreate(BaseModel):
-    timestamp: datetime | None = None
-    type: str
     message: str
-    payload: Any | None = None
-    tags: list[str] = Field(default_factory=list)
+    level: str = "info"
 
 
 class LogUpdate(BaseModel):
-    timestamp: datetime | None = None
-    type: str | None = None
     message: str | None = None
-    payload: Any | None = None
-    tags: list[str] | None = None
+    level: str | None = None
 
 
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+def _sql_literal(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    escaped = str(value).replace("\\", "\\\\").replace("'", "\\'")
+    return f"'{escaped}'"
 
 
-@contextmanager
-def interprocess_lock(lock_path: Path) -> Iterable[None]:
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_file = open(lock_path, "a", encoding="utf-8")
-    lock_file.seek(0)
+def _run_log_query(sql: str) -> QueryResult:
     try:
-        if os.name != "nt":
-            import fcntl
-
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        else:
-            import msvcrt
-
-            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
-        yield
-    finally:
-        if os.name != "nt":
-            import fcntl
-
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-        else:
-            import msvcrt
-
-            msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
-        lock_file.close()
+        return LOG_STORE.execute_sql(sql)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-class LogStore:
-    def __init__(self, path: Path, lock_path: Path) -> None:
-        self._path = path
-        self._lock_path = lock_path
-        self._lock = Lock()
-        self._logs: list[LogEntry] = []
-        self._id_index: dict[int, LogEntry] = {}
-        self._type_index: dict[str, set[int]] = {}
-        self._timestamp_index: list[tuple[datetime, int]] = []
-        self._next_id = 1
-        self.load()
-
-    def load(self) -> None:
-        if not self._path.exists():
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            self.save()
-            return
-        with interprocess_lock(self._lock_path):
-            with self._path.open("r", encoding="utf-8") as handle:
-                raw = json.load(handle)
-        self._logs = [LogEntry(**entry) for entry in raw]
-        self._rebuild_indexes()
-
-    def _rebuild_indexes(self) -> None:
-        self._id_index.clear()
-        self._type_index.clear()
-        self._timestamp_index.clear()
-        for entry in self._logs:
-            self._id_index[entry.id] = entry
-            self._type_index.setdefault(entry.type, set()).add(entry.id)
-            self._timestamp_index.append((entry.timestamp, entry.id))
-        self._timestamp_index.sort(key=lambda item: item[0])
-        self._next_id = max((entry.id for entry in self._logs), default=0) + 1
-
-    def _serialize(self) -> list[dict[str, Any]]:
-        return [entry.model_dump(mode="json") for entry in self._logs]
-
-    def save(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = self._path.with_suffix(".tmp")
-        with interprocess_lock(self._lock_path):
-            with temp_path.open("w", encoding="utf-8") as handle:
-                json.dump(self._serialize(), handle, indent=2, sort_keys=True)
-            os.replace(temp_path, self._path)
-
-    def list(self, log_type: str | None = None, start: datetime | None = None, end: datetime | None = None) -> list[LogEntry]:
-        with self._lock:
-            entries: Iterable[LogEntry] = self._logs
-            if log_type:
-                ids = self._type_index.get(log_type, set())
-                entries = [self._id_index[log_id] for log_id in ids]
-            if start or end:
-                entries = self._filter_by_timestamp(entries, start, end)
-            return list(entries)
-
-    def _filter_by_timestamp(
-        self,
-        entries: Iterable[LogEntry],
-        start: datetime | None,
-        end: datetime | None,
-    ) -> list[LogEntry]:
-        if entries is self._logs:
-            index = self._timestamp_index
-            left = 0 if start is None else bisect_left(index, (start, 0))
-            right = len(index)
-            if end is not None:
-                right = bisect_left(index, (end, 0))
-            return [self._id_index[log_id] for _, log_id in index[left:right]]
-        filtered: list[LogEntry] = []
-        for entry in entries:
-            if start and entry.timestamp < start:
-                continue
-            if end and entry.timestamp >= end:
-                continue
-            filtered.append(entry)
-        return filtered
-
-    def get(self, log_id: int) -> LogEntry | None:
-        return self._id_index.get(log_id)
-
-    def create(self, payload: LogCreate) -> LogEntry:
-        with self._lock:
-            entry = LogEntry(
-                id=self._next_id,
-                timestamp=payload.timestamp or _utc_now(),
-                type=payload.type,
-                message=payload.message,
-                payload=payload.payload,
-                tags=payload.tags,
-            )
-            self._next_id += 1
-            self._logs.append(entry)
-            self._id_index[entry.id] = entry
-            self._type_index.setdefault(entry.type, set()).add(entry.id)
-            insort(self._timestamp_index, (entry.timestamp, entry.id))
-            self.save()
-            return entry
-
-    def update(self, log_id: int, payload: LogUpdate) -> LogEntry | None:
-        with self._lock:
-            entry = self._id_index.get(log_id)
-            if entry is None:
-                return None
-            updated = entry.model_copy(update=payload.model_dump(exclude_unset=True))
-            if updated.type != entry.type:
-                self._type_index[entry.type].discard(entry.id)
-                self._type_index.setdefault(updated.type, set()).add(entry.id)
-            if updated.timestamp != entry.timestamp:
-                self._timestamp_index.remove((entry.timestamp, entry.id))
-                insort(self._timestamp_index, (updated.timestamp, updated.id))
-            idx = self._logs.index(entry)
-            self._logs[idx] = updated
-            self._id_index[updated.id] = updated
-            self.save()
-            return updated
-
-    def delete(self, log_id: int) -> bool:
-        with self._lock:
-            entry = self._id_index.get(log_id)
-            if entry is None:
-                return False
-            self._logs.remove(entry)
-            del self._id_index[entry.id]
-            self._type_index.get(entry.type, set()).discard(entry.id)
-            self._timestamp_index.remove((entry.timestamp, entry.id))
-            self.save()
-            return True
+def _fetch_log(log_id: int) -> LogEntry | None:
+    result = _run_log_query(f"SELECT * FROM logs WHERE id = {log_id} LIMIT 1")
+    if not result.rows:
+        return None
+    return LogEntry(**result.rows[0])
 
 
-LOG_STORE = LogStore(LOG_STORE_PATH, LOG_LOCK_PATH)
+LOG_STORE = LogStore(db_path=resolve_log_db_path(DEFAULT_DB_PATH))
 
 
 class ConnectionManager:
@@ -282,13 +138,24 @@ def list_logs(
     start: datetime | None = None,
     end: datetime | None = None,
 ) -> list[LogEntry]:
-    return LOG_STORE.list(log_type=log_type, start=start, end=end)
+    if start is not None or end is not None:
+        raise HTTPException(status_code=400, detail="Timestamp filtering is not supported by the log store")
+    where_clause = f" WHERE level = {_sql_literal(log_type)}" if log_type else ""
+    result = _run_log_query(f"SELECT * FROM logs{where_clause} ORDER BY id DESC")
+    return [LogEntry(**row) for row in result.rows]
 
 
 @app.post("/logs")
 @app.post("/api/logs")
 async def create_log(payload: LogCreate) -> LogEntry:
-    entry = LOG_STORE.create(payload)
+    _run_log_query(
+        "INSERT INTO logs (message, level) "
+        f"VALUES ({_sql_literal(payload.message)}, {_sql_literal(payload.level)})"
+    )
+    result = _run_log_query("SELECT * FROM logs ORDER BY id DESC LIMIT 1")
+    if not result.rows:
+        raise HTTPException(status_code=500, detail="Failed to load created log entry")
+    entry = LogEntry(**result.rows[0])
     await _CONNECTIONS.broadcast(
         {
             "type": "event",
@@ -297,6 +164,9 @@ async def create_log(payload: LogCreate) -> LogEntry:
                 "log_type": entry.type,
                 "message": entry.message,
                 "timestamp": entry.timestamp.isoformat(),
+                "log_type": entry.type,
+                "payload": entry.payload,
+                "tags": entry.tags,
             },
         }
     )
@@ -306,7 +176,7 @@ async def create_log(payload: LogCreate) -> LogEntry:
 @app.get("/logs/{log_id}")
 @app.get("/api/logs/{log_id}")
 def get_log(log_id: int) -> LogEntry:
-    entry = LOG_STORE.get(log_id)
+    entry = _fetch_log(log_id)
     if entry is None:
         raise HTTPException(status_code=404, detail=f"Log {log_id} not found")
     return entry
@@ -314,8 +184,17 @@ def get_log(log_id: int) -> LogEntry:
 
 @app.put("/logs/{log_id}")
 @app.put("/api/logs/{log_id}")
+@app.patch("/logs/{log_id}")
+@app.patch("/api/logs/{log_id}")
 def update_log(log_id: int, payload: LogUpdate) -> LogEntry:
-    updated = LOG_STORE.update(log_id, payload)
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided for update")
+    assignments = ", ".join(f"{column} = {_sql_literal(value)}" for column, value in updates.items())
+    result = _run_log_query(f"UPDATE logs SET {assignments} WHERE id = {log_id}")
+    if result.affected_rows == 0:
+        raise HTTPException(status_code=404, detail=f"Log {log_id} not found")
+    updated = _fetch_log(log_id)
     if updated is None:
         raise HTTPException(status_code=404, detail=f"Log {log_id} not found")
     return updated
@@ -324,9 +203,10 @@ def update_log(log_id: int, payload: LogUpdate) -> LogEntry:
 @app.delete("/logs/{log_id}")
 @app.delete("/api/logs/{log_id}")
 def delete_log(log_id: int) -> dict[str, str]:
-    if LOG_STORE.delete(log_id):
-        return {"status": "deleted"}
-    raise HTTPException(status_code=404, detail=f"Log {log_id} not found")
+    result = _run_log_query(f"DELETE FROM logs WHERE id = {log_id}")
+    if result.affected_rows == 0:
+        raise HTTPException(status_code=404, detail=f"Log {log_id} not found")
+    return {"status": "deleted"}
 
 
 def parse_args() -> argparse.Namespace:
