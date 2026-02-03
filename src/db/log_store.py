@@ -4,6 +4,8 @@ import json
 import os
 import re
 import threading
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
 
@@ -45,6 +47,7 @@ def resolve_log_db_path(db_path: str) -> str:
 class LogStore:
     def __init__(self, db_path: str) -> None:
         self._db_path = db_path
+        self._lock_path = f"{db_path}.lock"
         self._lock = threading.RLock()
         self._rows: list[dict[str, Any]] = []
         self._index_by_id: dict[int, dict[str, Any]] = {}
@@ -81,9 +84,48 @@ class LogStore:
     def _persist(self) -> None:
         os.makedirs(os.path.dirname(self._db_path) or ".", exist_ok=True)
         tmp_path = f"{self._db_path}.tmp"
-        with open(tmp_path, "w", encoding="utf-8") as handle:
-            json.dump(self._rows, handle, indent=2)
-        os.replace(tmp_path, self._db_path)
+        with self._interprocess_lock():
+            with open(tmp_path, "w", encoding="utf-8") as handle:
+                json.dump(self._rows, handle, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_path, self._db_path)
+
+    @contextmanager
+    def _interprocess_lock(self, retries: int = 10, delay: float = 0.1) -> Iterable[None]:
+        os.makedirs(os.path.dirname(self._lock_path) or ".", exist_ok=True)
+        lock_file = open(self._lock_path, "a", encoding="utf-8")
+        lock_file.seek(0)
+        attempts = 0
+        while True:
+            try:
+                if os.name != "nt":
+                    import fcntl
+
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                else:
+                    import msvcrt
+
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+                break
+            except OSError as exc:
+                attempts += 1
+                if attempts > retries:
+                    lock_file.close()
+                    raise TimeoutError("Timed out waiting for log store lock") from exc
+                time.sleep(delay)
+        try:
+            yield
+        finally:
+            if os.name != "nt":
+                import fcntl
+
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            else:
+                import msvcrt
+
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+            lock_file.close()
 
     def _rebuild_indexes(self) -> None:
         self._index_by_id = {}
