@@ -1,6 +1,8 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { get } from 'svelte/store';
   import { logEventsStore, websocketStore } from '../stores/websocket.js';
+  import { effectiveConfigStore } from '../stores/config.js';
 
   const pageSizeOptions = [5, 10, 20];
   const levelOptions = ['info', 'warning', 'error', 'debug'];
@@ -51,6 +53,15 @@
     return { data: [], total: 0 };
   }
 
+  function buildLogsApiUrl(path) {
+    const { backendBaseUrl } = get(effectiveConfigStore);
+    const base = backendBaseUrl?.trim() || '';
+    if (!base) return path;
+    const sanitized = base.replace(/\/$/, '');
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    return `${sanitized}${normalizedPath}`;
+  }
+
   function getTotalPages() {
     if (!total && logs.length < pageSize) {
       return page;
@@ -68,7 +79,7 @@
         page: String(page),
         page_size: String(pageSize)
       });
-      const response = await fetch(`/logs?${params.toString()}`);
+      const response = await fetch(buildLogsApiUrl(`/logs?${params.toString()}`));
 
       if (!response.ok) {
         throw new Error('Failed to load logs');
@@ -180,7 +191,7 @@
       showForm = false;
 
       try {
-        const response = await fetch('/logs', {
+        const response = await fetch(buildLogsApiUrl('/logs'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -213,7 +224,7 @@
     showForm = false;
 
     try {
-      const response = await fetch(`/logs/${selectedLog.id}`, {
+      const response = await fetch(buildLogsApiUrl(`/logs/${selectedLog.id}`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -254,7 +265,7 @@
     showDeleteConfirm = false;
 
     try {
-      const response = await fetch(`/logs/${deletedLog.id}`, {
+      const response = await fetch(buildLogsApiUrl(`/logs/${deletedLog.id}`), {
         method: 'DELETE'
       });
 
