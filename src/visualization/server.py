@@ -14,9 +14,11 @@ from typing import Any, Iterable
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from strawberry.fastapi import GraphQLRouter
 import uvicorn
 
 from src.db.log_store import LogStore, QueryResult, resolve_log_db_path
+from src.visualization.graphql_schema import build_graphql_context, schema as graphql_schema
 
 app = FastAPI(title="Genesis Visualization Service")
 app.add_middleware(
@@ -82,6 +84,8 @@ def _fetch_log(log_id: int) -> LogEntry | None:
 
 
 LOG_STORE = LogStore(db_path=resolve_log_db_path(DEFAULT_DB_PATH))
+graphql_router = GraphQLRouter(graphql_schema, context_getter=build_graphql_context(LOG_STORE))
+app.include_router(graphql_router, prefix="/graphql")
 
 
 class ConnectionManager:
