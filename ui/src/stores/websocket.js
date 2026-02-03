@@ -1,4 +1,5 @@
-import { writable, derived } from 'svelte/store';
+import { derived, get, writable } from 'svelte/store';
+import { effectiveConfigStore } from './config.js';
 
 const MAX_EVENTS = 100;
 
@@ -32,15 +33,21 @@ class WebSocketStore {
   }
   
   connect(url) {
-    console.log('🔌 WebSocketStore.connect() called with URL:', url);
+    const resolvedUrl = url ?? get(effectiveConfigStore).websocketUrl;
+    console.log('🔌 WebSocketStore.connect() called with URL:', resolvedUrl);
+    if (!resolvedUrl) {
+      console.warn('⚠️  No WebSocket URL available to connect');
+      this.connectionError.set('Missing WebSocket URL. Update settings and retry.');
+      return;
+    }
     try {
       console.log('📡 Creating WebSocket connection...');
-      this.lastUrl = url;
+      this.lastUrl = resolvedUrl;
       this.connectionError.set(null);
-      this.ws = new WebSocket(url);
+      this.ws = new WebSocket(resolvedUrl);
       
       this.ws.onopen = () => {
-        console.log('✅ WebSocket connected to:', url);
+        console.log('✅ WebSocket connected to:', resolvedUrl);
         this.connected.set(true);
         this.connectionError.set(null);
       };
@@ -75,7 +82,7 @@ class WebSocketStore {
         );
         // Reconnect after 3 seconds
         console.log('⏳ Will reconnect in 3 seconds...');
-        setTimeout(() => this.connect(url), 3000);
+        setTimeout(() => this.connect(resolvedUrl), 3000);
       };
     } catch (error) {
       console.error('❌ Failed to connect WebSocket:', error);

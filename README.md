@@ -20,6 +20,28 @@ Genesis is an experimental, multi-language research prototype for a multi‑octa
 
 ## Quick start
 
+### Docker Compose (recommended)
+
+```bash
+docker compose up --build
+```
+
+This starts:
+- Visualization backend on `http://localhost:8000`
+- SQL API on `http://localhost:8080` (matches the UI default)
+- UI on `http://localhost:5173`
+
+To also start the optional MySQL-compatible gateway:
+
+```bash
+docker compose --profile mysql up --build
+```
+
+Environment variables used by the services:
+- `GENESIS_DB_PATH` (default: `./data/genesis_db.json`)
+- `GENESIS_MYSQL_HOST` (default: `0.0.0.0`)
+- `GENESIS_MYSQL_PORT` (default: `3306`)
+
 ### 1) Install Python dependencies
 
 ```bash
@@ -54,7 +76,7 @@ The UI expects the visualization backend at `http://localhost:8000`.
 
 ```bash
 export GENESIS_DB_PATH=./data/genesis_db.json
-uvicorn src.api.log_api:app --host 0.0.0.0 --port 8001
+uvicorn src.api.log_api:app --host 0.0.0.0 --port 8080
 ```
 
 ### MySQL-compatible gateway
