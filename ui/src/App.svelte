@@ -1,38 +1,60 @@
 <script>
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
-  import BrainSpace from './components/BrainSpace.svelte';
-  import HeaderBar from './components/HeaderBar.svelte';
-  import ControlPanel from './components/ControlPanel.svelte';
-  import ChatBar from './components/ChatBar.svelte';
-  import SettingsView from './components/SettingsView.svelte';
-  import { websocketStore, connectedStore, lastSyncStore, connectionErrorStore } from './stores/websocket.js';
+  import { dataStore, websocketStore, connectedStore, lastSyncStore, connectionErrorStore } from './stores/websocket.js';
   import { effectiveConfigStore } from './stores/config.js';
-  
-  const API_BASE = import.meta.env.VITE_GENESIS_API_URL || 'http://localhost:8000';
 
-  let databases = [];
-  let tables = [];
-  let selectedDatabase = '';
   let selectedTable = '';
-  let rows = [];
-  let schemaColumns = [];
-  let schemaConstraints = [];
-  let schemaIndexes = [];
-  let schemaConstraintsDraft = '';
-  let schemaIndexesDraft = '';
   let filterText = '';
-  let page = 0;
-  let pageSize = 25;
-  let draftRow = {};
   let selectedRowKey = null;
-  let isNewRecord = false;
-  let errorMessage = '';
-  let isLoadingDatabases = false;
-  let isLoadingTables = false;
-  let isLoadingRows = false;
-  let isLoadingSchema = false;
-  let isMutating = false;
+
+  const rowKey = (row, columns = []) => row?.id ?? row?.[columns?.[0]?.name];
+  const matchesFilter = (row, filter) =>
+    !filter ||
+    Object.values(row || {}).some((value) =>
+      String(value ?? '')
+        .toLowerCase()
+        .includes(filter.toLowerCase())
+    );
+
+  const formatTimestamp = (value) => {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString('en-US', {
+      month: 'numeric',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
+  $: genesisDb = $dataStore?.genesisDb;
+  $: database = genesisDb?.database;
+  $: tables = genesisDb?.tables ?? {};
+  $: tableNames = Object.keys(tables);
+  $: activeTable = tables[selectedTable] || tables[genesisDb?.activeTable] || tables[tableNames[0]];
+  $: columns = activeTable?.columns ?? [];
+  $: rows = activeTable?.rows ?? [];
+  $: filteredRows = rows.filter((row) => matchesFilter(row, filterText));
+  $: selectedRow =
+    rows.find((row) => rowKey(row, columns) === selectedRowKey) ||
+    rows.find((row) => rowKey(row, columns) === genesisDb?.selectedRow?.id) ||
+    rows[0];
+  $: if (genesisDb?.activeTable && !selectedTable) {
+    selectedTable = genesisDb.activeTable;
+  }
+
+  const handleSelectTable = (name) => {
+    selectedTable = name;
+    selectedRowKey = null;
+  };
+
+  const handleSelectRow = (row) => {
+    selectedRowKey = rowKey(row, columns);
+  };
 
   onMount(() => {
     console.log('🎨 App.svelte mounted');
@@ -44,65 +66,6 @@
 
     if (useMockData) {
       console.log('📊 Setting mock data...');
-      // Generate realistic memory brain data at scale
-      // Each cluster represents a proto-identity with multiple memories
-      const numClusters = 1000; // Number of proto-identities
-      const clusters = [];
-      const allMemories = []; // Flat list of all memory points for point cloud
-      
-      for (let i = 0; i < numClusters; i++) {
-        // Each cluster has a centroid (proto-identity location)
-        const centroid = [
-          (Math.random() - 0.5) * 20,
-          (Math.random() - 0.5) * 20,
-          (Math.random() - 0.5) * 20
-        ];
-        
-        // Each cluster contains multiple memories (memory_ids)
-        // Realistic distribution: some clusters have many memories, some have few
-        const memoryCount = Math.floor(Math.random() * 50) + 5; // 5-55 memories per cluster
-        const memoryIds = Array.from({ length: memoryCount }, (_, j) => allMemories.length + j);
-        
-        // Generate memory points around the cluster centroid
-        // Memories cluster around their proto-identity with some variance
-        for (let m = 0; m < memoryCount; m++) {
-          // Gaussian-like distribution around centroid
-          const angle1 = Math.random() * Math.PI * 2;
-          const angle2 = Math.random() * Math.PI;
-          const radius = Math.random() * 2.0 + 0.5; // 0.5-2.5 units from centroid
-          
-          const memoryPos = [
-            centroid[0] + Math.cos(angle1) * Math.sin(angle2) * radius,
-            centroid[1] + Math.sin(angle1) * Math.sin(angle2) * radius,
-            centroid[2] + Math.cos(angle2) * radius
-          ];
-          
-          allMemories.push({
-            memory_id: memoryIds[m],
-            cluster_id: i,
-            identity_id: i % 5, // 5 different identity types
-            position: memoryPos,
-            coherence: 0.7 + Math.random() * 0.3, // 0.7-1.0
-            timestamp: Date.now() - Math.random() * 1000000
-          });
-        }
-        
-        clusters.push({
-          cluster_id: i,
-          identity_id: i % 5,
-          centroid: centroid,
-          memory_ids: memoryIds,
-          memory_count: memoryCount,
-          coherence: 0.8 + Math.random() * 0.2, // Cluster coherence
-          metadata: {
-            created_at: Date.now() - Math.random() * 2000000,
-            access_count: Math.floor(Math.random() * 100)
-          }
-        });
-      }
-      
-      console.log(`📦 Generated ${clusters.length} clusters with ${allMemories.length} total memories`);
-
       const genesisDb = {
         database: {
           name: 'hospital_core',
@@ -512,29 +475,9 @@
       };
       
       const mockData = {
-        brainSpace: {
-          clusters: clusters,
-          memories: allMemories // Full point cloud data
-        },
-        activation: {
-          waveform: Array.from({ length: 512 }, (_, i) => 
-            Math.sin(i * 0.1) * (1 - Math.abs(i - 256) / 256) * 0.5
-          ),
-          sparks: Array.from({ length: 5 }, () => ({
-            x: Math.random() * 512,
-            y: Math.random() * 512,
-            intensity: Math.random()
-          })),
-          energy: 0.7,
-          morphism: 'gamma'
-        },
-        controls: {
-          current_cycle: 'active',
-          morphism_state: 'gamma',
-          coherence: 0.85,
-          gamma_params: { amplitude: 100.0 },
-          tau_params: { projection_strength: 0.8 }
-        },
+        brainSpace: { clusters: [], memories: [] },
+        activation: { waveform: [], sparks: [], energy: 0.7, morphism: 'gamma' },
+        controls: { current_cycle: 'active', morphism_state: 'gamma', coherence: 0.85 },
         events: [],
         genesisDb
       };
@@ -544,25 +487,144 @@
       lastSyncStore.set(Date.now());
       connectionErrorStore.set(null);
       console.log('✅ Mock data set, connected state: true');
-      console.log('📦 Mock clusters:', mockData.brainSpace.clusters.length);
+      selectedTable = genesisDb.activeTable;
+      selectedRowKey = genesisDb.selectedRow?.id ?? null;
     } else {
       websocketStore.connect(websocketUrl);
     }
   });
 </script>
 
-<main class="h-screen w-screen flex flex-col relative">
-  <HeaderBar />
-  <!-- Main 3D Brain Space -->
-  <div class="flex-1 relative">
-    <BrainSpace />
-  </div>
-  <SettingsView />
+<main class="crud-app">
+  <header class="crud-header">
+    <div class="crud-brand">
+      <div class="brand-badge">DB</div>
+      <div>
+        <div class="brand-title">Genesis Data Console</div>
+        <div class="brand-subtitle">Schema explorer · CRUD workspace</div>
+      </div>
+    </div>
+    <div class="crud-actions">
+      <button class="btn btn-primary">New Record</button>
+      <button class="btn">Export</button>
+      <button class="btn">Settings</button>
+    </div>
+  </header>
+
+  <section class="crud-body">
+    <aside class="crud-sidebar">
+      <div class="sidebar-section">
+        <h3>Databases</h3>
+        <div class="database-card">
+          <div class="database-name">{database?.name ?? '—'}</div>
+          <div class="database-meta">{database?.description ?? 'No description available.'}</div>
+          <div class="database-meta">
+            {Object.keys(tables).length} tables · {database?.region ?? 'region unset'}
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Tables</h3>
+        <ul>
+          {#each tableNames as tableName}
+            <li>
+              <button
+                class={`table-pill ${tableName === (selectedTable || genesisDb?.activeTable) ? 'active' : ''}`}
+                on:click={() => handleSelectTable(tableName)}
+              >
+                <span>{tableName}</span>
+                <span class="table-count">{tables[tableName]?.rows?.length ?? 0}</span>
+              </button>
+            </li>
+          {/each}
+        </ul>
+      </div>
+
+      <div class="sidebar-section quick-actions">
+        <h3>Quick actions</h3>
+        <button class="btn btn-small">Import CSV</button>
+        <button class="btn btn-small">Run Query</button>
+        <button class="btn btn-small">Backup</button>
+      </div>
+    </aside>
+
+    <section class="crud-main">
+      <div class="table-header">
+        <div>
+          <div class="table-title">{selectedTable || genesisDb?.activeTable || 'Table'}</div>
+          <div class="table-meta">{rows.length} records · {columns.length} fields</div>
+        </div>
+        <div class="table-actions">
+          <input class="filter-input" type="text" placeholder="Filter rows" bind:value={filterText} />
+          <button class="btn">Filter</button>
+          <button class="btn">Columns</button>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <table>
+          <thead>
+            <tr>
+              {#each columns as column}
+                <th>{column.name}</th>
+              {/each}
+            </tr>
+          </thead>
+          <tbody>
+            {#each filteredRows as row}
+              <tr
+                class:selected={rowKey(row, columns) === rowKey(selectedRow, columns)}
+                on:click={() => handleSelectRow(row)}
+              >
+                {#each columns as column}
+                  <td>{row?.[column.name] ?? '—'}</td>
+                {/each}
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <aside class="crud-detail">
+      <div class="detail-card">
+        <h3>Update the selected row in {selectedTable || genesisDb?.activeTable}</h3>
+        <div class="detail-fields">
+          {#each columns as column}
+            <label>
+              <span>{column.name.toUpperCase()}</span>
+              <input type="text" readonly value={selectedRow?.[column.name] ?? ''} />
+            </label>
+          {/each}
+        </div>
+        <div class="detail-actions">
+          <button class="btn btn-primary">Save Changes</button>
+          <button class="btn">Delete</button>
+        </div>
+      </div>
+
+      <div class="detail-card info-card">
+        <div class="info-item">
+          <span>Last updated</span>
+          <strong>{formatTimestamp(database?.updated_at)}</strong>
+        </div>
+        <div class="info-item">
+          <span>Active table</span>
+          <strong>{selectedTable || genesisDb?.activeTable}</strong>
+        </div>
+        <div class="info-item">
+          <span>Row visibility</span>
+          <strong>{filteredRows.length} of {rows.length} rows</strong>
+        </div>
+      </div>
+    </aside>
+  </section>
 </main>
 
 <style>
   :global(body) {
-    background: #e7edf3;
+    background: #0b1633;
     color: #1f2937;
     overflow: hidden;
   }
@@ -640,10 +702,11 @@
 
   .crud-body {
     display: grid;
-    grid-template-columns: 240px 1fr 280px;
+    grid-template-columns: 240px minmax(0, 1fr) 300px;
     gap: 1.5rem;
     padding: 1.5rem 2rem 2rem;
     flex: 1;
+    background: radial-gradient(circle at top, rgba(59, 130, 246, 0.2), rgba(15, 23, 42, 0.95) 70%);
   }
 
   .crud-sidebar,
@@ -677,6 +740,7 @@
   .database-meta {
     font-size: 0.8rem;
     color: #64748b;
+    margin-top: 0.25rem;
   }
 
   .crud-sidebar ul {
@@ -686,5 +750,170 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+  }
+
+  .table-pill {
+    width: 100%;
+    border: none;
+    background: rgba(255, 255, 255, 0.15);
+    color: #e2e8f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.6rem 0.8rem;
+    border-radius: 0.75rem;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+
+  .table-pill.active {
+    background: rgba(30, 64, 175, 0.85);
+    color: #f8fafc;
+  }
+
+  .table-count {
+    background: rgba(255, 255, 255, 0.2);
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+  }
+
+  .quick-actions .btn {
+    background: rgba(255, 255, 255, 0.9);
+  }
+
+  .crud-main {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .table-header {
+    background: #f8fafc;
+    padding: 1rem 1.5rem;
+    border-radius: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 10px 20px rgba(15, 23, 42, 0.12);
+  }
+
+  .table-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #0f172a;
+  }
+
+  .table-meta {
+    font-size: 0.85rem;
+    color: #64748b;
+  }
+
+  .table-actions {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+  }
+
+  .filter-input {
+    border: 1px solid #cbd5f5;
+    padding: 0.4rem 0.75rem;
+    border-radius: 0.5rem;
+    min-width: 200px;
+  }
+
+  .table-card {
+    background: #f8fafc;
+    border-radius: 1rem;
+    padding: 0.5rem;
+    box-shadow: 0 20px 40px rgba(15, 23, 42, 0.15);
+    overflow: hidden;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+
+  thead th {
+    text-align: left;
+    padding: 0.8rem 1rem;
+    color: #0f172a;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  tbody td {
+    padding: 0.85rem 1rem;
+    color: #1e293b;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  tbody tr {
+    cursor: pointer;
+  }
+
+  tbody tr.selected {
+    background: rgba(59, 130, 246, 0.12);
+  }
+
+  .detail-card {
+    background: #f8fafc;
+    border-radius: 1.25rem;
+    padding: 1.25rem;
+    box-shadow: 0 20px 40px rgba(15, 23, 42, 0.2);
+  }
+
+  .detail-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+
+  .detail-fields label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    font-size: 0.7rem;
+    color: #64748b;
+    letter-spacing: 0.08em;
+  }
+
+  .detail-fields input {
+    border: 1px solid #cbd5f5;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.6rem;
+    font-size: 0.9rem;
+    color: #0f172a;
+    background: #ffffff;
+  }
+
+  .detail-actions {
+    margin-top: 1rem;
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  .info-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    font-size: 0.85rem;
+    color: #475569;
+  }
+
+  .info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .info-item strong {
+    color: #0f172a;
+    font-size: 1rem;
   }
 </style>
