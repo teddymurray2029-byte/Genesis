@@ -129,6 +129,7 @@ def create_app(
     db_path: str = DEFAULT_DB_PATH,
 ) -> FastAPI:
     db = _load_db(db_path, voxel_cloud_path)
+    log_store = _load_log_store(db_path)
     schema_constraints: list[str] = []
     schema_indexes: list[str] = []
 

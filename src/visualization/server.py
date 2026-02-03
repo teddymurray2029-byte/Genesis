@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import os
-from datetime import datetime, timezone
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -34,18 +33,25 @@ DEFAULT_DB_PATH = os.getenv("GENESIS_DB_PATH", "data/genesis_db.json")
 
 class LogEntry(BaseModel):
     id: int
+    timestamp: str | None = None
+    type: str | None = None
     message: str | None = None
-    level: str | None = None
+    payload: Any | None = None
+    tags: list[str] | None = None
 
 
 class LogCreate(BaseModel):
     message: str
-    level: str = "info"
+    type: str = "info"
+    payload: Any | None = None
+    tags: list[str] | None = None
 
 
 class LogUpdate(BaseModel):
     message: str | None = None
-    level: str | None = None
+    type: str | None = None
+    payload: Any | None = None
+    tags: list[str] | None = None
 
 
 def _sql_literal(value: Any) -> str:
@@ -53,6 +59,8 @@ def _sql_literal(value: Any) -> str:
         return "null"
     if isinstance(value, bool):
         return "true" if value else "false"
+    if isinstance(value, (list, dict)):
+        return json.dumps(value)
     if isinstance(value, (int, float)):
         return str(value)
     escaped = str(value).replace("\\", "\\\\").replace("'", "\\'")
@@ -115,9 +123,6 @@ def _schedule_broadcast(event_type: str, payload: dict[str, Any]) -> None:
     loop.create_task(_CONNECTIONS.broadcast({"type": "event", "event_type": event_type, "data": payload}))
 
 
-LOG_STORE = LogStore(LOG_STORE_PATH, LOG_LOCK_PATH, event_emitter=_schedule_broadcast)
-
-
 @app.get("/health")
 @app.get("/api/health")
 def health() -> dict[str, str]:
@@ -157,7 +162,7 @@ def list_logs(
 ) -> list[LogEntry]:
     if start is not None or end is not None:
         raise HTTPException(status_code=400, detail="Timestamp filtering is not supported by the log store")
-    where_clause = f" WHERE level = {_sql_literal(log_type)}" if log_type else ""
+    where_clause = f" WHERE type = {_sql_literal(log_type)}" if log_type else ""
     result = _run_log_query(f"SELECT * FROM logs{where_clause} ORDER BY id DESC")
     return [LogEntry(**row) for row in result.rows]
 
@@ -166,8 +171,13 @@ def list_logs(
 @app.post("/api/logs")
 async def create_log(payload: LogCreate) -> LogEntry:
     _run_log_query(
-        "INSERT INTO logs (message, level) "
-        f"VALUES ({_sql_literal(payload.message)}, {_sql_literal(payload.level)})"
+        "INSERT INTO logs (message, type, payload, tags) "
+        "VALUES ("
+        f"{_sql_literal(payload.message)}, "
+        f"{_sql_literal(payload.type)}, "
+        f"{_sql_literal(payload.payload)}, "
+        f"{_sql_literal(payload.tags)}"
+        ")"
     )
     result = _run_log_query("SELECT * FROM logs ORDER BY id DESC LIMIT 1")
     if not result.rows:
@@ -180,8 +190,7 @@ async def create_log(payload: LogCreate) -> LogEntry:
                 "type": "log",
                 "log_type": entry.type,
                 "message": entry.message,
-                "timestamp": entry.timestamp.isoformat(),
-                "log_type": entry.type,
+                "timestamp": entry.timestamp,
                 "payload": entry.payload,
                 "tags": entry.tags,
             },
