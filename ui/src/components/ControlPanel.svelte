@@ -4,6 +4,7 @@
   import Button from './ui/Button.svelte';
   import Toggle from './ui/Toggle.svelte';
   import Slider from './ui/Slider.svelte';
+  import LogsView from './LogsView.svelte';
   
   onMount(() => {
     console.log('🎛️  ControlPanel.svelte mounted');
@@ -186,15 +187,7 @@
   {/if}
   
   {#if activeTab === 'logs'}
-    <section class="space-y-2">
-      {#each events.slice(-20).reverse() as event}
-        <div class="text-xs p-2 bg-black/20 rounded">
-          <div class="text-genesis-cyan">{event.type}</div>
-          <div class="text-gray-400">{event.message}</div>
-          <div class="text-gray-500 text-[10px]">{event.timestamp}</div>
-        </div>
-      {/each}
-    </section>
+    <LogsView />
   {/if}
   
   {#if activeTab === 'settings'}
@@ -303,4 +296,3 @@
     border-bottom: none;
   }
 </style>
-
