@@ -1,11 +1,13 @@
 <script>
   import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
   import BrainSpace from './components/BrainSpace.svelte';
   import HeaderBar from './components/HeaderBar.svelte';
   import ControlPanel from './components/ControlPanel.svelte';
   import ChatBar from './components/ChatBar.svelte';
+  import SettingsView from './components/SettingsView.svelte';
   import { websocketStore, connectedStore, lastSyncStore, connectionErrorStore } from './stores/websocket.js';
-  import { genesisDbConfig } from './config/db.js';
+  import { effectiveConfigStore } from './stores/config.js';
   
   const API_BASE = import.meta.env.VITE_GENESIS_API_URL || 'http://localhost:8000';
 
@@ -38,7 +40,9 @@
     // Initialize WebSocket connection (disabled for now - using mock data)
     // websocketStore.connect('ws://localhost:8000/ws');
     
-    if (genesisDbConfig.useMockData) {
+    const { useMockData, websocketUrl } = get(effectiveConfigStore);
+
+    if (useMockData) {
       console.log('📊 Setting mock data...');
       // Generate realistic memory brain data at scale
       // Each cluster represents a proto-identity with multiple memories
@@ -542,7 +546,7 @@
       console.log('✅ Mock data set, connected state: true');
       console.log('📦 Mock clusters:', mockData.brainSpace.clusters.length);
     } else {
-      websocketStore.connect(genesisDbConfig.websocketUrl);
+      websocketStore.connect(websocketUrl);
     }
   });
 </script>
@@ -553,6 +557,7 @@
   <div class="flex-1 relative">
     <BrainSpace />
   </div>
+  <SettingsView />
 </main>
 
 <style>

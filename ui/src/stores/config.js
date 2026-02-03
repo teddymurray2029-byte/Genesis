@@ -1,0 +1,78 @@
+import { derived, writable } from 'svelte/store';
+
+const env = import.meta.env;
+const STORAGE_KEY = 'genesis-ui-settings';
+
+const defaultSettings = {
+  backendBaseUrl: env.VITE_GENESISDB_HTTP_URL ?? 'http://localhost:8080',
+  sqlApiBaseUrl: env.VITE_GENESISDB_SQL_API_URL ?? 'http://localhost:8080/sql'
+};
+
+const useMockData = env.VITE_GENESISDB_USE_MOCK_DATA
+  ? env.VITE_GENESISDB_USE_MOCK_DATA === 'true'
+  : true;
+const envWebsocketUrl = env.VITE_GENESISDB_WS_URL;
+
+const loadStoredSettings = () => {
+  if (typeof localStorage === 'undefined') {
+    return {};
+  }
+
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw);
+    return {
+      backendBaseUrl: parsed.backendBaseUrl ?? defaultSettings.backendBaseUrl,
+      sqlApiBaseUrl: parsed.sqlApiBaseUrl ?? defaultSettings.sqlApiBaseUrl
+    };
+  } catch (error) {
+    console.warn('Failed to load settings from localStorage:', error);
+    return {};
+  }
+};
+
+const deriveWebsocketUrl = (backendBaseUrl) => {
+  try {
+    const url = new URL(backendBaseUrl);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    url.pathname = url.pathname.replace(/\/$/, '');
+    url.pathname = `${url.pathname}/ws`;
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch (error) {
+    console.warn('Failed to derive WebSocket URL:', error);
+    return envWebsocketUrl ?? 'ws://localhost:8000/ws';
+  }
+};
+
+export const settingsStore = writable({
+  ...defaultSettings,
+  ...loadStoredSettings()
+});
+
+if (typeof localStorage !== 'undefined') {
+  settingsStore.subscribe((settings) => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  });
+}
+
+export const effectiveConfigStore = derived(settingsStore, ($settings) => {
+  const backendBaseUrl = $settings.backendBaseUrl?.trim() || defaultSettings.backendBaseUrl;
+  const sqlApiBaseUrl = $settings.sqlApiBaseUrl?.trim() || defaultSettings.sqlApiBaseUrl;
+  const websocketUrl = envWebsocketUrl ?? deriveWebsocketUrl(backendBaseUrl);
+
+  return {
+    backendBaseUrl,
+    sqlApiBaseUrl,
+    websocketUrl,
+    useMockData
+  };
+});
+
+export const resetSettings = () => {
+  settingsStore.set({ ...defaultSettings });
+};
