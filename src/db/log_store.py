@@ -5,6 +5,7 @@ import os
 import re
 import threading
 import time
+from datetime import datetime, timezone
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
@@ -202,6 +203,8 @@ class LogStore:
             row[column_name] = self._parse_literal(value)
 
         with self._lock:
+            if row.get("timestamp") is None:
+                row["timestamp"] = datetime.now(timezone.utc).isoformat()
             if row.get("id") is None:
                 next_id = max(self._index_by_id.keys(), default=0) + 1
                 row["id"] = next_id
