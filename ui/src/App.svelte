@@ -553,6 +553,7 @@
 
 <main class="h-screen w-screen flex flex-col relative">
   <HeaderBar />
+  <ConnectionDashboard />
   <!-- Main 3D Brain Space -->
   <div class="flex-1 relative">
     <BrainSpace />

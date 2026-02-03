@@ -1,6 +1,8 @@
 import { derived, get, writable } from 'svelte/store';
 import { effectiveConfigStore } from './config.js';
 
+const MAX_EVENTS = 100;
+
 class WebSocketStore {
   constructor() {
     if (WebSocketStore.instance) {
@@ -148,6 +150,19 @@ class WebSocketStore {
     console.log('🔄 handleMessage:', message.type);
     this.lastSync.set(Date.now());
     this.data.update(current => {
+      const appendEvent = event => ({
+        ...current,
+        events: [...current.events.slice(-MAX_EVENTS + 1), event]
+      });
+      const normalizeLogEvent = () => {
+        const payload = message.log ?? message.event ?? message.payload ?? message;
+        return {
+          type: message.type,
+          message: payload?.message ?? payload?.summary ?? 'Log update received.',
+          timestamp: message.timestamp ?? new Date().toISOString(),
+          payload
+        };
+      };
       let updated;
       switch (message.type) {
         case 'initial_state':
@@ -191,10 +206,14 @@ class WebSocketStore {
         
         case 'event':
           console.log('📝 Processing event:', message.event);
-          updated = {
-            ...current,
-            events: [...current.events.slice(-99), message.event]
-          };
+          updated = appendEvent(message.event);
+          break;
+
+        case 'log_created':
+        case 'log_updated':
+        case 'log_deleted':
+          console.log('🧾 Processing log event:', message.type);
+          updated = appendEvent(normalizeLogEvent());
           break;
 
         case 'timeline_update': {
@@ -330,6 +349,13 @@ export const connectedStore = websocketStore.connected;
 export const logsConnectedStore = websocketStore.logsConnected;
 export const lastSyncStore = websocketStore.lastSync;
 export const connectionErrorStore = websocketStore.connectionError;
+export const connectionStateStore = derived(
+  [connectedStore, connectionErrorStore],
+  ([$connected, $error]) => ({
+    connected: $connected,
+    error: $error
+  })
+);
 
 // Derived stores for convenience
 export const clustersStore = derived(dataStore, $data => $data?.brainSpace?.clusters || []);
