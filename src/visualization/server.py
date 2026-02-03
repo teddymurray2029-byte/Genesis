@@ -4,15 +4,19 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
+import os
+from bisect import bisect_left, insort
+from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Any
+from pathlib import Path
+from threading import Lock
+from typing import Any, Callable, Iterable
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import uvicorn
-
-from src.db.log_store import LogStore
 
 app = FastAPI(title="Genesis Visualization Service")
 app.add_middleware(
@@ -26,6 +30,10 @@ app.add_middleware(
 
 LOG_STORE_PATH = Path("data/logs.json")
 LOG_LOCK_PATH = Path("data/logs.lock")
+WS_EVENT_TYPE_LOG_CREATED = "log.created"
+WS_EVENT_TYPE_LOG_UPDATED = "log.updated"
+WS_EVENT_TYPE_LOG_DELETED = "log.deleted"
+WS_EVENT_TYPE_HEARTBEAT = "heartbeat"
 
 
 class LogEntry(BaseModel):
@@ -85,10 +93,17 @@ def interprocess_lock(lock_path: Path) -> Iterable[None]:
 
 
 class LogStore:
-    def __init__(self, path: Path, lock_path: Path) -> None:
+    def __init__(
+        self,
+        path: Path,
+        lock_path: Path,
+        *,
+        event_emitter: Callable[[str, dict[str, Any]], None] | None = None,
+    ) -> None:
         self._path = path
         self._lock_path = lock_path
         self._lock = Lock()
+        self._event_emitter = event_emitter
         self._logs: list[LogEntry] = []
         self._id_index: dict[int, LogEntry] = {}
         self._type_index: dict[str, set[int]] = {}
@@ -180,6 +195,7 @@ class LogStore:
             self._type_index.setdefault(entry.type, set()).add(entry.id)
             insort(self._timestamp_index, (entry.timestamp, entry.id))
             self.save()
+            self._emit_event(WS_EVENT_TYPE_LOG_CREATED, entry.model_dump(mode="json"))
             return entry
 
     def update(self, log_id: int, payload: LogUpdate) -> LogEntry | None:
@@ -198,22 +214,26 @@ class LogStore:
             self._logs[idx] = updated
             self._id_index[updated.id] = updated
             self.save()
+            self._emit_event(WS_EVENT_TYPE_LOG_UPDATED, updated.model_dump(mode="json"))
             return updated
 
-    def delete(self, log_id: int) -> bool:
+    def delete(self, log_id: int) -> LogEntry | None:
         with self._lock:
             entry = self._id_index.get(log_id)
             if entry is None:
-                return False
+                return None
             self._logs.remove(entry)
             del self._id_index[entry.id]
             self._type_index.get(entry.type, set()).discard(entry.id)
             self._timestamp_index.remove((entry.timestamp, entry.id))
             self.save()
-            return True
+            self._emit_event(WS_EVENT_TYPE_LOG_DELETED, {"id": entry.id})
+            return entry
 
-
-LOG_STORE = LogStore(LOG_STORE_PATH, LOG_LOCK_PATH)
+    def _emit_event(self, event_type: str, payload: dict[str, Any]) -> None:
+        if self._event_emitter is None:
+            return
+        self._event_emitter(event_type, payload)
 
 
 class ConnectionManager:
@@ -237,8 +257,25 @@ class ConnectionManager:
         for connection in to_remove:
             self._connections.discard(connection)
 
+    async def send(self, websocket: WebSocket, payload: dict[str, Any]) -> None:
+        try:
+            await websocket.send_json(payload)
+        except Exception:
+            self.disconnect(websocket)
+
 
 _CONNECTIONS = ConnectionManager()
+
+
+def _schedule_broadcast(event_type: str, payload: dict[str, Any]) -> None:
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    loop.create_task(_CONNECTIONS.broadcast({"type": "event", "event_type": event_type, "data": payload}))
+
+
+LOG_STORE = LogStore(LOG_STORE_PATH, LOG_LOCK_PATH, event_emitter=_schedule_broadcast)
 
 
 @app.get("/health")
@@ -265,7 +302,14 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 message = await asyncio.wait_for(websocket.receive_text(), timeout=15)
                 await websocket.send_json({"type": "ack", "message": message})
             except asyncio.TimeoutError:
-                await WS_MANAGER.heartbeat()
+                await _CONNECTIONS.send(
+                    websocket,
+                    {
+                        "type": "event",
+                        "event_type": WS_EVENT_TYPE_HEARTBEAT,
+                        "data": {"timestamp": _utc_now().isoformat()},
+                    },
+                )
     except WebSocketDisconnect:
         _CONNECTIONS.disconnect(websocket)
         return
@@ -284,21 +328,7 @@ def list_logs(
 @app.post("/logs")
 @app.post("/api/logs")
 async def create_log(payload: LogCreate) -> LogEntry:
-    global _NEXT_LOG_ID
-    entry = LogEntry(id=_NEXT_LOG_ID, message=payload.message, level=payload.level)
-    _NEXT_LOG_ID += 1
-    _LOGS.append(entry)
-    await _CONNECTIONS.broadcast(
-        {
-            "type": "event",
-            "event": {
-                "type": "log",
-                "message": entry.message,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            },
-        }
-    )
-    return entry
+    return LOG_STORE.create(payload)
 
 
 @app.get("/logs/{log_id}")
@@ -312,7 +342,7 @@ def get_log(log_id: int) -> LogEntry:
 
 @app.put("/logs/{log_id}")
 @app.put("/api/logs/{log_id}")
-def update_log(log_id: int, payload: LogUpdate) -> LogEntry:
+async def update_log(log_id: int, payload: LogUpdate) -> LogEntry:
     updated = LOG_STORE.update(log_id, payload)
     if updated is None:
         raise HTTPException(status_code=404, detail=f"Log {log_id} not found")
@@ -321,7 +351,7 @@ def update_log(log_id: int, payload: LogUpdate) -> LogEntry:
 
 @app.delete("/logs/{log_id}")
 @app.delete("/api/logs/{log_id}")
-def delete_log(log_id: int) -> dict[str, str]:
+async def delete_log(log_id: int) -> dict[str, str]:
     if LOG_STORE.delete(log_id):
         return {"status": "deleted"}
     raise HTTPException(status_code=404, detail=f"Log {log_id} not found")
