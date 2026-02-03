@@ -3,7 +3,7 @@ import { derived, writable } from 'svelte/store';
 const env = import.meta.env;
 const STORAGE_KEY = 'genesis-ui-settings';
 
-const defaultBackendBaseUrl = env.VITE_GENESISDB_HTTP_URL ?? 'http://localhost:8000';
+const defaultBackendBaseUrl = env.VITE_GENESISDB_HTTP_URL ?? 'http://209.127.114.165:8000';
 const defaultSqlApiBaseUrl =
   env.VITE_GENESISDB_SQL_API_URL ?? env.VITE_GENESISDB_HTTP_URL ?? defaultBackendBaseUrl;
 
@@ -50,7 +50,7 @@ const deriveWebsocketUrl = (backendBaseUrl) => {
     return url.toString();
   } catch (error) {
     console.warn('Failed to derive WebSocket URL:', error);
-    return envWebsocketUrl ?? 'ws://localhost:8000/ws';
+    return envWebsocketUrl ?? 'ws://209.127.114.165:8000/ws';
   }
 };
 
@@ -65,7 +65,7 @@ const deriveLogsWebsocketUrl = (backendBaseUrl) => {
     return url.toString();
   } catch (error) {
     console.warn('Failed to derive Logs WebSocket URL:', error);
-    return envLogsWebsocketUrl ?? 'ws://localhost:8000/ws/logs';
+    return envLogsWebsocketUrl ?? 'ws://209.127.114.165:8000/ws/logs';
   }
 };
 
