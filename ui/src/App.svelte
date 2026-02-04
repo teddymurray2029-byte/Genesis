@@ -25,6 +25,8 @@
         .toLowerCase()
         .includes(filter.toLowerCase())
     );
+  const READONLY_SQL_PATTERN = /^\s*(with|select)\b/i;
+  const EXPLAIN_SQL_PATTERN = /^\s*explain(?:\s+analyze)?\s+/i;
 
   const formatTimestamp = (value) => {
     if (!value) return '—';
@@ -76,6 +78,72 @@
     return `${sanitized}${normalizedPath}`;
   };
 
+  const splitSqlStatements = (sql) =>
+    (sql || '')
+      .split(';')
+      .map((statement) => statement.trim())
+      .filter(Boolean);
+
+  const selectReadableSql = (sql) => {
+    const statements = splitSqlStatements(sql);
+    if (statements.length === 0) {
+      return { error: 'SQL query must not be empty.' };
+    }
+
+    let readableSql = null;
+    let ignoredCount = 0;
+    let strippedExplainCount = 0;
+    let readableCount = 0;
+
+    statements.forEach((statement) => {
+      if (READONLY_SQL_PATTERN.test(statement)) {
+        readableCount += 1;
+        if (!readableSql) {
+          readableSql = statement;
+        } else {
+          ignoredCount += 1;
+        }
+        return;
+      }
+
+      if (EXPLAIN_SQL_PATTERN.test(statement)) {
+        const stripped = statement.replace(EXPLAIN_SQL_PATTERN, '').trim();
+        if (READONLY_SQL_PATTERN.test(stripped)) {
+          readableCount += 1;
+          strippedExplainCount += 1;
+          if (!readableSql) {
+            readableSql = stripped;
+          } else {
+            ignoredCount += 1;
+          }
+          return;
+        }
+      }
+
+      ignoredCount += 1;
+    });
+
+    if (!readableSql) {
+      return { error: 'Only SELECT queries are supported in this demo.' };
+    }
+
+    const noticeParts = [];
+    if (readableCount > 1) {
+      noticeParts.push('Executing the first readable SELECT statement.');
+    }
+    if (ignoredCount > 0) {
+      noticeParts.push(`Ignored ${ignoredCount} non-SELECT statement${ignoredCount === 1 ? '' : 's'}.`);
+    }
+    if (strippedExplainCount > 0) {
+      noticeParts.push('EXPLAIN statements were stripped to run the underlying SELECT.');
+    }
+
+    return {
+      sql: readableSql,
+      notice: noticeParts.length ? noticeParts.join(' ') : null
+    };
+  };
+
   const detectTableFromSql = (sql) => {
     if (!sql) return 'entries';
     return /\bfrom\s+logs\b/i.test(sql) || /\bupdate\s+logs\b/i.test(sql) || /\binto\s+logs\b/i.test(sql)
@@ -118,7 +186,7 @@
     return response.json();
   };
 
-  const refreshGenesisDb = async (sql = queryText) => {
+  const refreshGenesisDb = async (sql = queryText, notice = null) => {
     isQueryRunning = true;
     queryError = null;
     queryStatus = 'Loading data from GenesisDB...';
@@ -173,7 +241,8 @@
       connectionErrorStore.set(null);
       selectedTable = tableName;
       selectedRowKey = genesisDb.selectedRow?.id ?? null;
-      queryStatus = `Loaded ${result.row_count} rows from ${tableName}.`;
+      const baseStatus = `Loaded ${result.row_count} rows from ${tableName}.`;
+      queryStatus = notice ? `${notice} ${baseStatus}` : baseStatus;
     } catch (error) {
       console.error('Failed to load GenesisDB data:', error);
       queryError = error?.message || 'Failed to load GenesisDB data.';
@@ -185,7 +254,13 @@
   };
 
   const runQuery = async () => {
-    await refreshGenesisDb(queryText);
+    const { sql, notice, error } = selectReadableSql(queryText);
+    if (error) {
+      queryError = error;
+      queryStatus = null;
+      return;
+    }
+    await refreshGenesisDb(sql, notice);
   };
 
   const exportCsv = () => {
