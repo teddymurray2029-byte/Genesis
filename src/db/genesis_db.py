@@ -546,3 +546,9 @@ class GenesisDB:
         if entry_id is not None and entry_id != original_id:
             if entry_id in self._index_by_id:
                 raise ValueError(f"id {entry_id} already exists")
+
+
+class SofiaDatabase(GenesisDB):
+    """Alias for GenesisDB."""
+
+    pass
