@@ -9,27 +9,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from src.api.models import QueryResponse, SqlQuery
 from src.api.sql_utils import normalize_sql
 from src.db.genesis_db import GenesisDB
 from src.db.log_store import LogStore, resolve_log_db_path
 
 DEFAULT_VOXEL_CLOUD_PATH = os.getenv("GENESIS_VOXEL_CLOUD_PATH")
 DEFAULT_DB_PATH = os.getenv("GENESIS_DB_PATH", "data/genesis_db.json")
-
-
-class SqlQuery(BaseModel):
-    sql: str = Field(..., description="SQL query targeting the entries table.")
-    params: list[Any] = Field(default_factory=list, description="SQL parameters for placeholders.")
-
-
-class QueryResponse(BaseModel):
-    rows: list[dict[str, Any]]
-    row_count: int
-    columns: list[str] = Field(default_factory=list)
-    affected_rows: int = 0
-    operation: str = "select"
-    execution_time_ms: float = 0.0
-    time_complexity: str | None = None
 
 
 class SchemaColumn(BaseModel):
