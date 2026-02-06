@@ -5,7 +5,7 @@ import re
 import time
 from typing import Any, Iterable, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -168,7 +168,9 @@ def create_app(
         }
 
     @app.post("/query", response_model=QueryResponse)
-    def query_entries(request: SqlQuery) -> QueryResponse:
+    def query_entries(request: SqlQuery | None = Body(default=None)) -> QueryResponse:
+        if request is None or not request.sql.strip():
+            raise HTTPException(status_code=400, detail="SQL query must not be empty")
         sql = normalize_sql(request.sql)
         if _targets_logs(sql):
             return _query_logs(log_store, sql, request.params)

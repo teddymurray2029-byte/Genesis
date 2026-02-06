@@ -13,7 +13,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Iterable
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from strawberry.fastapi import GraphQLRouter
@@ -228,7 +228,9 @@ def health() -> dict[str, str]:
 
 
 @app.post("/query", response_model=QueryResponse)
-def query(request: SqlQuery) -> QueryResponse:
+def query(request: SqlQuery | None = Body(default=None)) -> QueryResponse:
+    if request is None or not request.sql.strip():
+        raise HTTPException(status_code=400, detail="SQL query must not be empty")
     sql = normalize_sql(request.sql)
     if _targets_logs(sql):
         return _query_logs(sql, request.params)
