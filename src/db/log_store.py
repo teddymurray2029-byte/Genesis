@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -53,11 +54,46 @@ class LogStore:
         self._lock = threading.RLock()
         self._rows: list[dict[str, Any]] = []
         self._index_by_id: dict[int, dict[str, Any]] = {}
+        self._transaction_depth = 0
+        self._transaction_snapshot: list[dict[str, Any]] | None = None
+        self._pending_persist = False
         self._load()
 
     @property
     def schema(self) -> list[dict[str, str]]:
         return LOG_SCHEMA
+
+    def in_transaction(self) -> bool:
+        return self._transaction_depth > 0
+
+    def begin_transaction(self) -> None:
+        with self._lock:
+            if self._transaction_depth == 0:
+                self._transaction_snapshot = copy.deepcopy(self._rows)
+                self._pending_persist = False
+            self._transaction_depth += 1
+
+    def commit_transaction(self) -> None:
+        with self._lock:
+            if self._transaction_depth == 0:
+                raise RuntimeError("No active transaction to commit")
+            self._transaction_depth -= 1
+            if self._transaction_depth == 0:
+                self._transaction_snapshot = None
+                if self._pending_persist:
+                    self._persist()
+                self._pending_persist = False
+
+    def rollback_transaction(self) -> None:
+        with self._lock:
+            if self._transaction_depth == 0:
+                raise RuntimeError("No active transaction to roll back")
+            if self._transaction_snapshot is not None:
+                self._rows = self._transaction_snapshot
+                self._rebuild_indexes()
+            self._transaction_snapshot = None
+            self._transaction_depth = 0
+            self._pending_persist = False
 
     def execute_sql(self, sql: str) -> QueryResult:
         normalized = sql.strip().rstrip(";").strip()
@@ -107,6 +143,12 @@ class LogStore:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(tmp_path, self._db_path)
+
+    def _maybe_persist(self) -> None:
+        if self._transaction_depth > 0:
+            self._pending_persist = True
+            return
+        self._persist()
 
     @contextmanager
     def _interprocess_lock(self, retries: int = 10, delay: float = 0.1) -> Iterable[None]:
@@ -211,7 +253,7 @@ class LogStore:
             self._ensure_unique_keys(row)
             self._rows.append(row)
             self._index_by_id[row["id"]] = row
-            self._persist()
+            self._maybe_persist()
 
         return QueryResult(rows=[], columns=[], affected_rows=1, operation="insert")
 
@@ -240,7 +282,7 @@ class LogStore:
                     self._index_by_id.pop(original_id, None)
                     self._index_by_id[row["id"]] = row
             if updated:
-                self._persist()
+                self._maybe_persist()
 
         return QueryResult(rows=[], columns=[], affected_rows=updated, operation="update")
 
@@ -265,7 +307,7 @@ class LogStore:
             if deleted:
                 self._rows = remaining
                 self._rebuild_indexes()
-                self._persist()
+                self._maybe_persist()
 
         return QueryResult(rows=[], columns=[], affected_rows=deleted, operation="delete")
 
