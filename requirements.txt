@@ -7,3 +7,4 @@ uvicorn
 matplotlib
 httpx
 strawberry-graphql[fastapi]
+psycopg2-binary
