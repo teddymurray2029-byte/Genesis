@@ -7,11 +7,8 @@ import asyncio
 from datetime import datetime
 import json
 import os
-import re
 import time
-from pathlib import Path
-from threading import Lock
-from typing import Any, Iterable
+from typing import Any
 
 from fastapi import Body, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,9 +16,9 @@ from pydantic import BaseModel
 from strawberry.fastapi import GraphQLRouter
 import uvicorn
 
-from src.api.models import QueryBatchResponse, QueryResponse, SqlQuery
-from src.api.sql_utils import normalize_sql_statement, parse_sql_statements
-from src.db.genesis_db import GenesisDB
+from src.api.models import PostgresQuery, PostgresQueryBatchResponse, PostgresQueryResponse
+from src.api.postgres_utils import execute_postgres_statement
+from src.api.sql_utils import parse_sql_statements
 from src.db.log_store import LogStore, QueryResult, resolve_log_db_path
 from src.visualization.graphql_schema import build_graphql_context, schema as graphql_schema
 
@@ -35,7 +32,6 @@ app.add_middleware(
 )
 
 
-DEFAULT_VOXEL_CLOUD_PATH = os.getenv("GENESIS_VOXEL_CLOUD_PATH")
 DEFAULT_DB_PATH = os.getenv("GENESIS_DB_PATH", "data/genesis_db.json")
 LOG_WS_INITIAL_LIMIT = 100
 
@@ -83,61 +79,6 @@ def _run_log_query(sql: str) -> QueryResult:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-def _query_entries(sql: str, params: Iterable[Any]) -> QueryResponse:
-    if params:
-        raise HTTPException(status_code=400, detail="SQL parameters are not supported by GenesisDB")
-    normalized = normalize_sql_statement(sql)
-    complexity = GENESIS_DB.estimate_time_complexity(normalized)
-    start = time.perf_counter()
-    try:
-        result = GENESIS_DB.execute_sql(normalized)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    elapsed_ms = (time.perf_counter() - start) * 1000
-    return QueryResponse(
-        rows=result.rows,
-        row_count=len(result.rows),
-        columns=result.columns,
-        affected_rows=result.affected_rows,
-        operation=result.operation,
-        execution_time_ms=elapsed_ms,
-        time_complexity=complexity,
-    )
-
-
-def _query_logs(sql: str, params: Iterable[Any]) -> QueryResponse:
-    if params:
-        raise HTTPException(status_code=400, detail="SQL parameters are not supported by the log store")
-    normalized = normalize_sql_statement(sql)
-    complexity = LOG_STORE.estimate_time_complexity(normalized)
-    start = time.perf_counter()
-    try:
-        result = LOG_STORE.execute_sql(normalized)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    elapsed_ms = (time.perf_counter() - start) * 1000
-    return QueryResponse(
-        rows=result.rows,
-        row_count=len(result.rows),
-        columns=result.columns,
-        affected_rows=result.affected_rows,
-        operation=result.operation,
-        execution_time_ms=elapsed_ms,
-        time_complexity=complexity,
-    )
-
-
-def _targets_logs(sql: str) -> bool:
-    normalized = sql.lower()
-    patterns = [
-        r"\bfrom\s+logs\b",
-        r"\binto\s+logs\b",
-        r"\bupdate\s+logs\b",
-        r"\bdelete\s+from\s+logs\b",
-    ]
-    return any(re.search(pattern, normalized) for pattern in patterns)
-
-
 def _fetch_log(log_id: int) -> LogEntry | None:
     result = _run_log_query(f"SELECT * FROM logs WHERE id = {log_id} LIMIT 1")
     if not result.rows:
@@ -145,7 +86,6 @@ def _fetch_log(log_id: int) -> LogEntry | None:
     return LogEntry(**result.rows[0])
 
 
-GENESIS_DB = GenesisDB(db_path=DEFAULT_DB_PATH, voxel_cloud_path=DEFAULT_VOXEL_CLOUD_PATH)
 LOG_STORE = LogStore(db_path=resolve_log_db_path(DEFAULT_DB_PATH))
 graphql_router = GraphQLRouter(graphql_schema, context_getter=build_graphql_context(LOG_STORE))
 app.include_router(graphql_router, prefix="/graphql")
@@ -229,8 +169,10 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/query", response_model=QueryResponse | QueryBatchResponse)
-def query(request: SqlQuery | None = Body(default=None)) -> QueryResponse | QueryBatchResponse:
+@app.post("/query", response_model=PostgresQueryResponse | PostgresQueryBatchResponse)
+def query(
+    request: PostgresQuery | None = Body(default=None),
+) -> PostgresQueryResponse | PostgresQueryBatchResponse:
     if request is None or not request.sql.strip():
         raise HTTPException(status_code=400, detail="SQL query must not be empty")
     statements = parse_sql_statements(request.sql)
@@ -239,17 +181,14 @@ def query(request: SqlQuery | None = Body(default=None)) -> QueryResponse | Quer
             status_code=400,
             detail="SQL parameters are only supported for single-statement queries",
         )
-    results: list[QueryResponse] = []
+    results: list[PostgresQueryResponse] = []
     start = time.perf_counter()
     for statement in statements:
-        if _targets_logs(statement):
-            results.append(_query_logs(statement, request.params))
-        else:
-            results.append(_query_entries(statement, request.params))
+        results.append(execute_postgres_statement(statement, request.params))
     total_elapsed_ms = (time.perf_counter() - start) * 1000
     if len(results) == 1:
         return results[0]
-    return QueryBatchResponse(
+    return PostgresQueryBatchResponse(
         results=results,
         statement_count=len(results),
         execution_time_ms=total_elapsed_ms,

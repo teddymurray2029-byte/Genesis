@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import os
-import re
 import time
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from src.api.models import QueryBatchResponse, QueryResponse, SqlQuery
-from src.api.sql_utils import normalize_sql_statement, parse_sql_statements
+from src.api.models import PostgresQuery, PostgresQueryBatchResponse, PostgresQueryResponse
+from src.api.postgres_utils import execute_postgres_statement
+from src.api.sql_utils import parse_sql_statements
 from src.db.genesis_db import GenesisDB
 from src.db.log_store import LogStore, resolve_log_db_path
 
@@ -55,61 +55,6 @@ def _load_db(db_path: str, voxel_cloud_path: Optional[str]) -> GenesisDB:
 
 def _load_log_store(db_path: str) -> LogStore:
     return LogStore(db_path=resolve_log_db_path(db_path))
-
-
-def _query_entries(db: GenesisDB, sql: str, params: Iterable[Any]) -> QueryResponse:
-    if params:
-        raise HTTPException(status_code=400, detail="SQL parameters are not supported by GenesisDB")
-    normalized = normalize_sql_statement(sql)
-    complexity = db.estimate_time_complexity(normalized)
-    start = time.perf_counter()
-    try:
-        result = db.execute_sql(normalized)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    elapsed_ms = (time.perf_counter() - start) * 1000
-    return QueryResponse(
-        rows=result.rows,
-        row_count=len(result.rows),
-        columns=result.columns,
-        affected_rows=result.affected_rows,
-        operation=result.operation,
-        execution_time_ms=elapsed_ms,
-        time_complexity=complexity,
-    )
-
-
-def _query_logs(log_store: LogStore, sql: str, params: Iterable[Any]) -> QueryResponse:
-    if params:
-        raise HTTPException(status_code=400, detail="SQL parameters are not supported by the log store")
-    normalized = normalize_sql_statement(sql)
-    complexity = log_store.estimate_time_complexity(normalized)
-    start = time.perf_counter()
-    try:
-        result = log_store.execute_sql(normalized)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    elapsed_ms = (time.perf_counter() - start) * 1000
-    return QueryResponse(
-        rows=result.rows,
-        row_count=len(result.rows),
-        columns=result.columns,
-        affected_rows=result.affected_rows,
-        operation=result.operation,
-        execution_time_ms=elapsed_ms,
-        time_complexity=complexity,
-    )
-
-
-def _targets_logs(sql: str) -> bool:
-    normalized = sql.lower()
-    patterns = [
-        r"\\bfrom\\s+logs\\b",
-        r"\\binto\\s+logs\\b",
-        r"\\bupdate\\s+logs\\b",
-        r"\\bdelete\\s+from\\s+logs\\b",
-    ]
-    return any(re.search(pattern, normalized) for pattern in patterns)
 
 
 def create_app(
@@ -169,8 +114,10 @@ def create_app(
             "indexes": schema_indexes,
         }
 
-    @app.post("/query", response_model=QueryResponse | QueryBatchResponse)
-    def query_entries(request: SqlQuery | None = Body(default=None)) -> QueryResponse | QueryBatchResponse:
+    @app.post("/query", response_model=PostgresQueryResponse | PostgresQueryBatchResponse)
+    def query_entries(
+        request: PostgresQuery | None = Body(default=None),
+    ) -> PostgresQueryResponse | PostgresQueryBatchResponse:
         if request is None or not request.sql.strip():
             raise HTTPException(status_code=400, detail="SQL query must not be empty")
         statements = parse_sql_statements(request.sql)
@@ -179,17 +126,14 @@ def create_app(
                 status_code=400,
                 detail="SQL parameters are only supported for single-statement queries",
             )
-        results: list[QueryResponse] = []
+        results: list[PostgresQueryResponse] = []
         start = time.perf_counter()
         for statement in statements:
-            if _targets_logs(statement):
-                results.append(_query_logs(log_store, statement, request.params))
-            else:
-                results.append(_query_entries(db, statement, request.params))
+            results.append(execute_postgres_statement(statement, request.params))
         total_elapsed_ms = (time.perf_counter() - start) * 1000
         if len(results) == 1:
             return results[0]
-        return QueryBatchResponse(
+        return PostgresQueryBatchResponse(
             results=results,
             statement_count=len(results),
             execution_time_ms=total_elapsed_ms,
