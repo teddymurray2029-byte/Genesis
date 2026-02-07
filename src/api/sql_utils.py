@@ -6,6 +6,8 @@ from fastapi import HTTPException
 
 _SQL_READONLY_PATTERN = re.compile(r"^\s*(with|select)\b", re.IGNORECASE | re.DOTALL)
 _DOLLAR_QUOTE_PATTERN = re.compile(r"^\$[A-Za-z0-9_]*\$$")
+_QUERY_TYPE_PATTERN = re.compile(r"^\s*(\w+)", re.IGNORECASE | re.DOTALL)
+_WITH_QUERY_TYPE_PATTERN = re.compile(r"\b(select|insert|update|delete)\b", re.IGNORECASE | re.DOTALL)
 
 
 def normalize_sql(sql: str) -> str:
@@ -143,3 +145,16 @@ def ensure_readonly_sql(sql: str) -> str:
     if not _SQL_READONLY_PATTERN.match(normalized):
         raise HTTPException(status_code=400, detail="Only SELECT queries are allowed")
     return normalized
+
+
+def get_query_type(sql: str) -> str:
+    normalized = normalize_sql_statement(sql)
+    match = _QUERY_TYPE_PATTERN.match(normalized)
+    if not match:
+        return "unknown"
+    keyword = match.group(1).lower()
+    if keyword == "with":
+        with_match = _WITH_QUERY_TYPE_PATTERN.search(normalized)
+        if with_match:
+            keyword = with_match.group(1).lower()
+    return keyword
