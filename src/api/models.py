@@ -18,3 +18,9 @@ class QueryResponse(BaseModel):
     operation: str = "select"
     execution_time_ms: float = 0.0
     time_complexity: str | None = None
+
+
+class QueryBatchResponse(BaseModel):
+    results: list[QueryResponse]
+    statement_count: int
+    execution_time_ms: float = 0.0

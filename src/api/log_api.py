@@ -9,8 +9,8 @@ from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from src.api.models import QueryResponse, SqlQuery
-from src.api.sql_utils import normalize_sql
+from src.api.models import QueryBatchResponse, QueryResponse, SqlQuery
+from src.api.sql_utils import normalize_sql_statement, parse_sql_statements
 from src.db.genesis_db import GenesisDB
 from src.db.log_store import LogStore, resolve_log_db_path
 
@@ -60,10 +60,11 @@ def _load_log_store(db_path: str) -> LogStore:
 def _query_entries(db: GenesisDB, sql: str, params: Iterable[Any]) -> QueryResponse:
     if params:
         raise HTTPException(status_code=400, detail="SQL parameters are not supported by GenesisDB")
-    complexity = db.estimate_time_complexity(sql)
+    normalized = normalize_sql_statement(sql)
+    complexity = db.estimate_time_complexity(normalized)
     start = time.perf_counter()
     try:
-        result = db.execute_sql(sql)
+        result = db.execute_sql(normalized)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     elapsed_ms = (time.perf_counter() - start) * 1000
@@ -81,10 +82,11 @@ def _query_entries(db: GenesisDB, sql: str, params: Iterable[Any]) -> QueryRespo
 def _query_logs(log_store: LogStore, sql: str, params: Iterable[Any]) -> QueryResponse:
     if params:
         raise HTTPException(status_code=400, detail="SQL parameters are not supported by the log store")
-    complexity = log_store.estimate_time_complexity(sql)
+    normalized = normalize_sql_statement(sql)
+    complexity = log_store.estimate_time_complexity(normalized)
     start = time.perf_counter()
     try:
-        result = log_store.execute_sql(sql)
+        result = log_store.execute_sql(normalized)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     elapsed_ms = (time.perf_counter() - start) * 1000
@@ -167,14 +169,31 @@ def create_app(
             "indexes": schema_indexes,
         }
 
-    @app.post("/query", response_model=QueryResponse)
-    def query_entries(request: SqlQuery | None = Body(default=None)) -> QueryResponse:
+    @app.post("/query", response_model=QueryResponse | QueryBatchResponse)
+    def query_entries(request: SqlQuery | None = Body(default=None)) -> QueryResponse | QueryBatchResponse:
         if request is None or not request.sql.strip():
             raise HTTPException(status_code=400, detail="SQL query must not be empty")
-        sql = normalize_sql(request.sql)
-        if _targets_logs(sql):
-            return _query_logs(log_store, sql, request.params)
-        return _query_entries(db, sql, request.params)
+        statements = parse_sql_statements(request.sql)
+        if len(statements) > 1 and request.params:
+            raise HTTPException(
+                status_code=400,
+                detail="SQL parameters are only supported for single-statement queries",
+            )
+        results: list[QueryResponse] = []
+        start = time.perf_counter()
+        for statement in statements:
+            if _targets_logs(statement):
+                results.append(_query_logs(log_store, statement, request.params))
+            else:
+                results.append(_query_entries(db, statement, request.params))
+        total_elapsed_ms = (time.perf_counter() - start) * 1000
+        if len(results) == 1:
+            return results[0]
+        return QueryBatchResponse(
+            results=results,
+            statement_count=len(results),
+            execution_time_ms=total_elapsed_ms,
+        )
 
     @app.post("/reload")
     def reload_cloud(request: ReloadRequest) -> dict[str, Any]:

@@ -19,8 +19,8 @@ from pydantic import BaseModel
 from strawberry.fastapi import GraphQLRouter
 import uvicorn
 
-from src.api.models import QueryResponse, SqlQuery
-from src.api.sql_utils import normalize_sql
+from src.api.models import QueryBatchResponse, QueryResponse, SqlQuery
+from src.api.sql_utils import normalize_sql_statement, parse_sql_statements
 from src.db.genesis_db import GenesisDB
 from src.db.log_store import LogStore, QueryResult, resolve_log_db_path
 from src.visualization.graphql_schema import build_graphql_context, schema as graphql_schema
@@ -86,10 +86,11 @@ def _run_log_query(sql: str) -> QueryResult:
 def _query_entries(sql: str, params: Iterable[Any]) -> QueryResponse:
     if params:
         raise HTTPException(status_code=400, detail="SQL parameters are not supported by GenesisDB")
-    complexity = GENESIS_DB.estimate_time_complexity(sql)
+    normalized = normalize_sql_statement(sql)
+    complexity = GENESIS_DB.estimate_time_complexity(normalized)
     start = time.perf_counter()
     try:
-        result = GENESIS_DB.execute_sql(sql)
+        result = GENESIS_DB.execute_sql(normalized)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     elapsed_ms = (time.perf_counter() - start) * 1000
@@ -107,10 +108,11 @@ def _query_entries(sql: str, params: Iterable[Any]) -> QueryResponse:
 def _query_logs(sql: str, params: Iterable[Any]) -> QueryResponse:
     if params:
         raise HTTPException(status_code=400, detail="SQL parameters are not supported by the log store")
-    complexity = LOG_STORE.estimate_time_complexity(sql)
+    normalized = normalize_sql_statement(sql)
+    complexity = LOG_STORE.estimate_time_complexity(normalized)
     start = time.perf_counter()
     try:
-        result = LOG_STORE.execute_sql(sql)
+        result = LOG_STORE.execute_sql(normalized)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     elapsed_ms = (time.perf_counter() - start) * 1000
@@ -227,14 +229,31 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/query", response_model=QueryResponse)
-def query(request: SqlQuery | None = Body(default=None)) -> QueryResponse:
+@app.post("/query", response_model=QueryResponse | QueryBatchResponse)
+def query(request: SqlQuery | None = Body(default=None)) -> QueryResponse | QueryBatchResponse:
     if request is None or not request.sql.strip():
         raise HTTPException(status_code=400, detail="SQL query must not be empty")
-    sql = normalize_sql(request.sql)
-    if _targets_logs(sql):
-        return _query_logs(sql, request.params)
-    return _query_entries(sql, request.params)
+    statements = parse_sql_statements(request.sql)
+    if len(statements) > 1 and request.params:
+        raise HTTPException(
+            status_code=400,
+            detail="SQL parameters are only supported for single-statement queries",
+        )
+    results: list[QueryResponse] = []
+    start = time.perf_counter()
+    for statement in statements:
+        if _targets_logs(statement):
+            results.append(_query_logs(statement, request.params))
+        else:
+            results.append(_query_entries(statement, request.params))
+    total_elapsed_ms = (time.perf_counter() - start) * 1000
+    if len(results) == 1:
+        return results[0]
+    return QueryBatchResponse(
+        results=results,
+        statement_count=len(results),
+        execution_time_ms=total_elapsed_ms,
+    )
 
 
 def build_initial_state() -> dict[str, Any]:
