@@ -1,20 +1,99 @@
-# Genesis
+# Genesis GraphQL Gateway (Draft)
 
-Genesis is a multi-language research prototype exploring a multi‑octave memory system. The repository combines Python pipelines for FFT-based encoding and storage, a FastAPI backend with streaming visualization, a Svelte UI, and a small Rust library for categorical type system experiments. A lightweight Node CLI helps launch the services.
+Genesis is a research prototype exploring a multi‑octave memory system with a SQL-backed data layer, streaming visualization, and a Svelte UI. This README reframes the project around a **GraphQL-first API** for working with entries, logs, and metadata, while calling out what is available today and what remains a draft.
 
-> **Status**: Work in progress. The Node CLI currently implements only the `service` command; other commands are stubs.
+> **Status**: The GraphQL layer is **not yet implemented**. The current, working API is the SQL/REST service described below. This document defines the target GraphQL surface and how it maps to existing capabilities.
 
 ---
 
-## Repository map
+## Why GraphQL here?
 
-- **Python memory pipeline**: FFT encoders/decoders, triplanar projection, and multi‑octave orchestration in `src/pipeline/` and `src/memory/`.
-- **WaveCube integration**: Layered 3D storage and compression utilities under `lib/wavecube/` with a bridge in `src/memory/wavecube_integration.py`.
-- **Visualization backend**: FastAPI service with health, log CRUD, and WebSocket streaming in `src/visualization/server.py`.
-- **SQL API + MySQL gateway**: JSON-backed GenesisDB in `src/api/log_api.py` and a MySQL protocol gateway in `src/api/mysql_server.py`.
-- **Frontend UI**: Svelte + Vite visualization app in `ui/`.
-- **Rust library**: Categorical type system scaffolding in `src/lib.rs` and `src/category/`.
-- **Node CLI**: `genesis.js` wraps and launches Python services.
+Genesis exposes heterogeneous data (entries, logs, voxel clouds) that benefit from:
+
+- **Flexible selection**: Clients request only the fields they need.
+- **Consistent schema**: Typed objects for entries, logs, and system status.
+- **Composable UI data**: A single query can hydrate multiple panels in the UI.
+
+---
+
+## Current API (available now)
+
+Genesis ships a FastAPI service with SQL-style querying and metadata endpoints.
+
+### Core endpoints
+
+- `GET /health` → service status and counts
+- `GET /schema` → `entries` table schema
+- `POST /query` → SQL against `entries` or `logs`
+- `POST /reload` → reload the data source
+
+### Example SQL query (today)
+
+```bash
+curl -X POST http://localhost:8080/query \
+  -H 'Content-Type: application/json' \
+  -d '{"sql": "SELECT * FROM entries LIMIT 5"}'
+```
+
+---
+
+## GraphQL API (draft design)
+
+> These queries and types describe the **intended** GraphQL interface. They are a design target and not yet executable.
+
+### Proposed schema (excerpt)
+
+```graphql
+type Query {
+  health: Health!
+  entries(limit: Int, offset: Int, orderBy: EntryOrder): [Entry!]!
+  logs(limit: Int, offset: Int, level: LogLevel): [Log!]!
+  entry(id: ID!): Entry
+}
+
+type Health {
+  status: String!
+  entries: Int!
+  voxelCloudPath: String
+  dbPath: String
+}
+
+type Entry {
+  id: ID!
+  timestamp: String
+  label: String
+  payload: JSON
+}
+
+type Log {
+  id: ID!
+  level: String
+  message: String
+  timestamp: String
+}
+```
+
+### Example GraphQL query (draft)
+
+```graphql
+query Dashboard {
+  health {
+    status
+    entries
+  }
+  entries(limit: 5, orderBy: { field: "timestamp", direction: DESC }) {
+    id
+    label
+    timestamp
+  }
+}
+```
+
+### Mapping to the current SQL API
+
+- `health` → `GET /health`
+- `entries` / `entry` → `POST /query` against the `entries` table
+- `logs` → `POST /query` against the `logs` table
 
 ---
 
@@ -24,10 +103,10 @@ Genesis is a multi-language research prototype exploring a multi‑octave memory
 docker compose up --build
 ```
 
-This starts:
-- Visualization backend on `http://localhost:8000`
-- SQL API on `http://localhost:8080` (matches the UI default)
-- UI on `http://localhost:5173`
+Services:
+- Visualization backend: `http://localhost:8000`
+- SQL API (current): `http://localhost:8080`
+- UI: `http://localhost:5173`
 
 Optional MySQL-compatible gateway:
 
@@ -35,98 +114,51 @@ Optional MySQL-compatible gateway:
 docker compose --profile mysql up --build
 ```
 
-Environment variables:
-- `GENESIS_DB_PATH` (default: `./data/genesis_db.json`)
-- `GENESIS_MYSQL_HOST` (default: `0.0.0.0`)
-- `GENESIS_MYSQL_PORT` (default: `3306`)
-
 ---
 
-## Prerequisites (local development)
+## Local development
+
+### Prerequisites
 
 - Python 3.10+
 - Node.js 18+
-- Rust (optional, only if building the Rust library)
+- Rust (optional, for the Rust library)
 
-Install Node dependencies at the repo root before using the CLI:
-
-```bash
-npm install
-```
-
----
-
-## Local setup
-
-### 1) Install Python dependencies
+### Install dependencies
 
 ```bash
 python -m pip install -r requirements.txt
+npm install
 ```
 
-### 2) Run the visualization backend
-
-```bash
-node genesis.js service --host 0.0.0.0 --port 8000
-```
-
-The service exposes:
-- `GET /health` (or `/api/health`)
-- `GET/POST/PUT/DELETE /logs`
-- `WS /ws`
-
-### 3) Run the visualization UI
-
-```bash
-npm --prefix ui install
-npm --prefix ui run dev
-```
-
-The UI expects the backend at `http://localhost:8000`.
-
----
-
-## SQL API + MySQL gateway (standalone)
-
-### SQL API
+### Run the SQL API
 
 ```bash
 export GENESIS_DB_PATH=./data/genesis_db.json
 uvicorn src.api.log_api:app --host 0.0.0.0 --port 8080
 ```
 
-### MySQL-compatible gateway
+### Run the visualization backend
 
 ```bash
-export GENESIS_DB_PATH=./data/genesis_db.json
-export GENESIS_MYSQL_HOST=0.0.0.0
-export GENESIS_MYSQL_PORT=3306
-python -m src.api.mysql_server
+node genesis.js service --host 0.0.0.0 --port 8000
+```
+
+### Run the UI
+
+```bash
+npm --prefix ui install
+npm --prefix ui run dev
 ```
 
 ---
 
-## Examples
+## Roadmap to GraphQL
 
-```bash
-python examples/demo_fft_roundtrip.py
-python examples/demo_memory_integration.py
-python examples/demo_hierarchical_synthesis.py
-```
-
----
-
-## CLI status
-
-`genesis.js` exposes several commands, but only the visualization `service` command is currently implemented. The other commands parse arguments and exit with a "not yet implemented" message.
-
----
-
-## Tests
-
-```bash
-pytest tests/ -v
-```
+1. Add a GraphQL server (FastAPI + Strawberry or Ariadne).
+2. Implement resolvers that translate to existing `entries`/`logs` SQL queries.
+3. Add subscriptions for live log streaming over WebSockets.
+4. Update the UI to query the GraphQL endpoint.
 
 ---
 
