@@ -16,6 +16,8 @@ class QueryResponse(BaseModel):
     columns: list[str] = Field(default_factory=list)
     affected_rows: int = 0
     operation: str = "select"
+    query_type: str = "select"
+    message: str = ""
     execution_time_ms: float = 0.0
     time_complexity: str | None = None
 
@@ -23,4 +25,6 @@ class QueryResponse(BaseModel):
 class QueryBatchResponse(BaseModel):
     results: list[QueryResponse]
     statement_count: int
+    total_row_count: int = 0
+    total_affected_rows: int = 0
     execution_time_ms: float = 0.0
