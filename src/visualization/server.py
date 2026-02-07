@@ -59,6 +59,17 @@ class LogUpdate(BaseModel):
     tags: list[str] | None = None
 
 
+class QueryRequest(BaseModel):
+    text: str
+    limit: int = 10
+    log_type: str | None = None
+
+
+class QueryResultItem(BaseModel):
+    score: float
+    log: LogEntry
+
+
 def _sql_literal(value: Any) -> str:
     if value is None:
         return "null"
@@ -84,6 +95,24 @@ def _fetch_log(log_id: int) -> LogEntry | None:
     if not result.rows:
         return None
     return LogEntry(**result.rows[0])
+
+
+def _merge_semantic_results(
+    results: Iterable[tuple[int, float]],
+    limit: int,
+    log_type: str | None,
+) -> list[QueryResultItem]:
+    merged: list[QueryResultItem] = []
+    for entry_id, score in results:
+        entry = _fetch_log(entry_id)
+        if entry is None:
+            continue
+        if log_type and entry.type != log_type:
+            continue
+        merged.append(QueryResultItem(score=score, log=entry))
+        if len(merged) >= limit:
+            break
+    return merged
 
 
 LOG_STORE = LogStore(db_path=resolve_log_db_path(DEFAULT_DB_PATH))
@@ -203,6 +232,13 @@ def build_initial_state() -> dict[str, Any]:
     }
 
 
+@app.on_event("startup")
+async def warm_log_embeddings() -> None:
+    result = _run_log_query("SELECT * FROM logs")
+    for row in result.rows:
+        LOG_EMBEDDING_WORKER.enqueue(row)
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
     await _CONNECTIONS.connect(websocket)
@@ -253,6 +289,18 @@ def list_logs(
     where_clause = f" WHERE type = {_sql_literal(log_type)}" if log_type else ""
     result = _run_log_query(f"SELECT * FROM logs{where_clause} ORDER BY id DESC")
     return [LogEntry(**row) for row in result.rows]
+
+
+@app.post("/query")
+@app.post("/api/query")
+def query_logs(payload: QueryRequest) -> list[QueryResultItem]:
+    text = payload.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Query text must not be empty")
+    limit = max(1, payload.limit)
+    query_vector = LOG_EMBEDDING_PIPELINE.embed_text(text)
+    results = LOG_VECTOR_INDEX.search(query_vector, limit=limit * 3)
+    return _merge_semantic_results(results, limit=limit, log_type=payload.log_type)
 
 
 @app.post("/logs")
